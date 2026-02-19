@@ -6,7 +6,7 @@ import ReactMarkdown from 'react-markdown';
 
 export const GeminiAssistant: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: 'model', text: 'Hello! I am your Termux & Alist assistant. Stuck on a step or getting an error? Paste it here!' }
+    { role: 'model', text: '你好！我是你的 Termux & Alist 助手。安装遇到问题或者报错了吗？请把错误信息发给我！' }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -38,7 +38,7 @@ export const GeminiAssistant: React.FC = () => {
     <div className="flex flex-col h-[500px] bg-terminal-card border border-slate-700 rounded-xl overflow-hidden shadow-2xl">
       <div className="bg-gradient-to-r from-slate-800 to-slate-900 p-4 border-b border-slate-700 flex items-center gap-2">
         <SparklesIcon className="w-5 h-5 text-terminal-accent" />
-        <h3 className="font-bold text-slate-200">AI Troubleshooting Assistant</h3>
+        <h3 className="font-bold text-slate-200">AI 故障排查助手</h3>
       </div>
       
       <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-terminal-bg/50">
@@ -81,7 +81,7 @@ export const GeminiAssistant: React.FC = () => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="E.g., 'I got a permission denied error'..."
+            placeholder="例如：'我遇到了权限拒绝错误'..."
             className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-4 py-2 text-sm text-slate-200 focus:outline-none focus:border-terminal-accent focus:ring-1 focus:ring-terminal-accent transition-all"
           />
           <button

@@ -29,12 +29,12 @@ export const CommandBlock: React.FC<CommandBlockProps> = ({ command, label }) =>
           {copied ? (
             <>
               <CheckIcon className="w-4 h-4 text-terminal-accent" />
-              <span className="text-terminal-accent">Copied!</span>
+              <span className="text-terminal-accent">已复制!</span>
             </>
           ) : (
             <>
               <ClipboardDocumentIcon className="w-4 h-4" />
-              <span>Copy</span>
+              <span>复制</span>
             </>
           )}
         </button>

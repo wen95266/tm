@@ -23,9 +23,9 @@ export const generateHelpResponse = async (userQuery: string): Promise<string> =
       }
     });
 
-    return response.text || "I couldn't generate a response. Please try again.";
+    return response.text || "无法生成回复，请重试。";
   } catch (error) {
     console.error("Gemini API Error:", error);
-    return "Sorry, I encountered an error connecting to the AI assistant. Please check your internet connection.";
+    return "抱歉，连接 AI 助手时出现错误，请检查网络连接。";
   }
 };
