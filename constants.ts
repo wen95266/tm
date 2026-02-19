@@ -1,11 +1,9 @@
 import { CommandStep, InstallMethod } from './types';
 
-// Fix: Cast import.meta to any to avoid "Property 'env' does not exist on type 'ImportMeta'" error when types are missing.
-// 获取通过 setup.sh 注入的环境变量
-const ENV_BOT_TOKEN = (import.meta as any).env.VITE_BOT_TOKEN || '你的_BOT_TOKEN';
-// Fix: Cast import.meta to any to avoid "Property 'env' does not exist on type 'ImportMeta'" error when types are missing.
-// 如果没有设置 ID，默认为 0 (可以在代码中处理为不限制或提示设置)
-const ENV_ADMIN_ID = (import.meta as any).env.VITE_ADMIN_ID || '0';
+// 获取通过 setup.sh 注入的环境变量 (CLI 模式下从 process.env 读取)
+// 注意：main.ts 会负责加载 .env 文件到 process.env
+const ENV_BOT_TOKEN = process.env.VITE_BOT_TOKEN || '你的_BOT_TOKEN';
+const ENV_ADMIN_ID = process.env.VITE_ADMIN_ID || '0';
 
 export const INSTALL_STEPS: Record<InstallMethod, CommandStep[]> = {
   [InstallMethod.BINARY]: [
@@ -85,40 +83,42 @@ export const POST_INSTALL_STEPS: CommandStep[] = [
 export const BOT_GUIDE_STEPS: CommandStep[] = [
   {
     id: 'bot_prep',
-    title: '1. 准备环境 (API & FFmpeg)',
-    description: '安装 Python、FFmpeg (用于推流) 和 Termux API (用于 WiFi)。',
+    title: '1. 准备环境',
+    description: '安装 Python、FFmpeg (推流工具) 和 Termux API (WiFi 控制)。',
     command: 'pkg install python termux-api ffmpeg -y && pip install pyTelegramBotAPI',
-    explanation: 'FFmpeg 是直播推流的核心工具。请务必安装 Termux:API 安卓应用并授予权限。'
+    explanation: 'FFmpeg 是直播的核心。Termux:API 需要你在安卓系统设置中授予它"位置信息"权限才能扫描 WiFi。'
   },
   {
-    id: 'bot_token',
-    title: '2. 确认配置信息',
-    description: '以下信息已根据你在安装时的输入自动生成。如果之前跳过了配置，请手动修改脚本。',
-    command: `Token: ${ENV_BOT_TOKEN}\nAdmin ID: ${ENV_ADMIN_ID === '0' ? '未设置 (请在 Telegram 通过 @userinfobot 获取)' : ENV_ADMIN_ID}`,
-    explanation: 'Admin ID 用于权限验证，防止陌生人控制你的手机。'
+    id: 'bot_check',
+    title: '2. 核对信息',
+    description: '以下是自动读取的配置信息。如果为空，请重新运行 setup.sh 配置。',
+    command: `echo "Token: ${ENV_BOT_TOKEN}"\necho "Admin: ${ENV_ADMIN_ID}"`,
+    explanation: 'Admin ID 用于防止陌生人控制你的机器人。'
   },
   {
     id: 'bot_script',
-    title: '3. 创建全能机器人脚本',
-    description: '此脚本集成了权限验证、Alist 管理、WiFi 自动切换和 FFmpeg 直播推流功能。',
-    command: `import telebot
+    title: '3. 生成 bot.py',
+    description: '复制下方命令并粘贴到 Termux。它会使用 cat 命令自动创建文件。',
+    command: `cat << 'EOF' > bot.py
+import telebot
 import subprocess
 import time
 import threading
 import json
 import shlex
 
-# --- 🚀 配置区域 ---
+# --- 🚀 基础配置 ---
 BOT_TOKEN = '${ENV_BOT_TOKEN}'
-ADMIN_ID = ${ENV_ADMIN_ID}  # 0 代表未设置，建议填入数字 ID
+ADMIN_ID = ${ENV_ADMIN_ID} 
 
-# 直播推流地址 (格式: rtmp://服务器地址/密钥)
-TG_RTMP_URL = '你的_TELEGRAM_RTMP_URL'
+# --- ⚠️ 需手动修改的配置 ---
+# 1. Telegram 直播推流地址 (rtmp://...)
+TG_RTMP_URL = 'rtmp://你的服务器地址/密钥'
 
-# 预设 WiFi 列表 (SSID: 密码)
+# 2. WiFi 自动重连配置 (SSID: 密码)
 WIFI_CONFIG = {
-    'Home_WiFi': 'password123',
-    'Office_WiFi': 'password456'
+    'MyHomeWifi': 'password123',
+    'MyOfficeWifi': 'password456'
 }
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -130,42 +130,44 @@ def run_command(cmd):
     except Exception as e:
         return str(e)
 
-# --- 🔒 权限验证 ---
 def is_authorized(message):
-    if ADMIN_ID == 0:
-        return True # 如果未设置 ID，则允许所有人 (不安全)
+    if ADMIN_ID == 0: return True
     return message.from_user.id == ADMIN_ID
 
-# --- 📺 直播推流功能 ---
+# --- 📺 推流逻辑 ---
 @bot.message_handler(commands=['stream'])
 def start_stream(message):
     if not is_authorized(message): return
     global stream_process
+    
     try:
         parts = message.text.split(maxsplit=1)
         if len(parts) < 2:
-            bot.reply_to(message, "用法: /stream <视频直链URL>\\n请从 Alist 复制文件的下载直链。")
+            bot.reply_to(message, "❌ 用法: /stream <直链URL>")
             return
 
         video_url = parts[1]
         
+        # 停止旧进程
         if stream_process and stream_process.poll() is None:
             stream_process.terminate()
             time.sleep(1)
 
-        bot.reply_to(message, "🚀 正在启动 FFmpeg 推流...\\n目标: Telegram 直播间")
+        bot.reply_to(message, "🚀 正在启动 FFmpeg 推流...")
 
+        # FFmpeg 参数优化: 
+        # -re (实时读取), ultrafast (低延迟编码), zerolatency
         cmd = [
             'ffmpeg', '-re', '-i', video_url,
-            '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '3000k',
-            '-maxrate', '3000k', '-bufsize', '6000k',
-            '-pix_fmt', 'yuv420p', '-g', '50',
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
+            '-b:v', '2500k', '-maxrate', '3000k', '-bufsize', '6000k',
+            '-r', '30', '-g', '60',
             '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
             '-f', 'flv', TG_RTMP_URL
         ]
 
         stream_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        bot.reply_to(message, "✅ 推流进程已在后台运行！")
+        bot.reply_to(message, "✅ 推流已在后台运行！")
         
     except Exception as e:
         bot.reply_to(message, f"❌ 启动失败: {e}")
@@ -177,81 +179,105 @@ def stop_stream_cmd(message):
     if stream_process and stream_process.poll() is None:
         stream_process.terminate()
         stream_process = None
-        bot.reply_to(message, "⏹ 直播推流已停止。")
+        bot.reply_to(message, "⏹ 直播推流已停止")
     else:
-        bot.reply_to(message, "当前没有正在进行的直播任务。")
+        bot.reply_to(message, "⚠️ 当前无正在进行的推流")
 
-# --- 📡 WiFi 自动管理 ---
+# --- 📡 WiFi 监控 ---
 def check_wifi_loop():
     while True:
         try:
             info_str = run_command('termux-wifi-connectioninfo')
-            try: info = json.loads(info_str)
-            except: info = {}
-
+            info = json.loads(info_str) if info_str else {}
+            
             if info.get('supplicant_state') != 'COMPLETED':
-                print("⚠️ WiFi 断线，尝试重连...")
-                for ssid, password in WIFI_CONFIG.items():
-                    run_command(f'termux-wifi-connect -s "{ssid}" -p "{password}"')
-                    time.sleep(15)
-                    new_info = run_command('termux-wifi-connectioninfo')
-                    if '"supplicant_state": "COMPLETED"' in new_info and ssid in new_info:
-                        print(f"✅ 已重连: {ssid}")
+                print("⚠️ WiFi 断线，正在尝试备用网络...")
+                for ssid, pwd in WIFI_CONFIG.items():
+                    run_command(f'termux-wifi-connect -s "{ssid}" -p "{pwd}"')
+                    time.sleep(12)
+                    if 'COMPLETED' in run_command('termux-wifi-connectioninfo'):
+                        print(f"✅ 已连接到: {ssid}")
                         break
-            time.sleep(30)
-        except: time.sleep(30)
+            time.sleep(20)
+        except: time.sleep(20)
 
-# --- 🤖 基础命令 ---
+# --- 🤖 机器人响应 ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    if not is_authorized(message): 
-        bot.reply_to(message, "🚫 你没有权限使用此机器人。")
-        return
-        
-    help_text = (
-        "🎬 **Termux 全能管家**\\n"
-        f"当前管理员 ID: {ADMIN_ID}\\n\\n"
-        "📺 **直播**\\n/stream <URL> - 推流\\n/stop_stream - 停止\\n\\n"
-        "📡 **系统**\\n/status - 状态\\n/switch <ssid> - 切 WiFi\\n/alist_start - 启动服务"
+    if not is_authorized(message): return
+    bot.reply_to(message, 
+        "🤖 **Termux 助手**\\n"
+        "🎬 /stream <url> - 推流\\n"
+        "⏹ /stop_stream - 停止\\n"
+        "📡 /status - 状态\\n"
+        "🔄 /switch <ssid> - 切WiFi"
     )
-    bot.reply_to(message, help_text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['status'])
 def status(message):
     if not is_authorized(message): return
-    # 检查 FFmpeg
-    ffmpeg_status = "🟢 推流中" if stream_process and stream_process.poll() is None else "🔴以此停止"
-    # WiFi 信息
-    wifi = run_command('termux-wifi-connectioninfo')
-    try: wifi_ssid = json.loads(wifi).get('ssid', '未知')
-    except: wifi_ssid = "获取失败"
-    
-    bot.reply_to(message, f"📡 WiFi: {wifi_ssid}\\n🎬 直播状态: {ffmpeg_status}")
+    wifi = json.loads(run_command('termux-wifi-connectioninfo') or '{}').get('ssid', '未知')
+    st = "🟢 推流中" if stream_process and stream_process.poll() is None else "🔴 未推流"
+    bot.reply_to(message, f"📡 WiFi: {wifi}\\n🎬 直播: {st}")
 
-@bot.message_handler(commands=['alist_start'])
-def start_alist(message):
+@bot.message_handler(commands=['switch'])
+def switch_wifi(message):
     if not is_authorized(message): return
-    subprocess.Popen(['./alist', 'server'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    bot.reply_to(message, "✅ Alist 启动指令已发送")
+    try:
+        ssid = message.text.split(maxsplit=1)[1]
+        pwd = WIFI_CONFIG.get(ssid)
+        if pwd:
+            bot.reply_to(message, f"🔄 正在切换到 {ssid}...")
+            run_command(f'termux-wifi-connect -s "{ssid}" -p "{pwd}"')
+        else:
+            bot.reply_to(message, "❌ 未知 SSID (请先在脚本 WIFI_CONFIG 中添加)")
+    except:
+        bot.reply_to(message, "用法: /switch <ssid>")
 
-# 启动线程
+# 启动后台线程
 t = threading.Thread(target=check_wifi_loop)
 t.daemon = True
 t.start()
 
-print("Bot 运行中...")
-bot.polling()`,
-    explanation: '脚本顶部的 BOT_TOKEN 和 ADMIN_ID 已根据你在安装时的输入自动填充。请记得将 RTMP_URL 替换为你的直播推流地址。'
+print("Bot is running...")
+bot.polling()
+EOF`,
+    explanation: '使用 cat 命令可以避免 nano 粘贴时的格式混乱。'
+  },
+  {
+      id: 'bot_edit',
+      title: '4. 填写配置',
+      description: '关键步骤：你需要填入真实的 WiFi 密码和推流地址。',
+      command: 'nano bot.py',
+      explanation: '使用箭头键找到 WIFI_CONFIG 和 TG_RTMP_URL。修改完成后，按 Ctrl+X (音量减 + x)，然后按 Y 保存。'
+  },
+  {
+      id: 'bot_run',
+      title: '5. 启动机器人',
+      description: '一切就绪！运行机器人。',
+      command: 'python bot.py',
+      explanation: '看到 "Bot is running..." 即表示成功。你可以随时在 Telegram 给机器人发送 /start。'
   }
 ];
 
-export const SYSTEM_INSTRUCTION = `你是一个专业的 Termux 和 Linux 助手，专注于帮助用户在 Android 上安装 Alist 和配置自动化脚本。
-你的回答必须全部使用中文。
-常见问题解答：
-- "Permission denied": 需要运行 'chmod +x alist' 或者 'termux-setup-storage'。
-- 直播推流失败: 检查 RTMP 地址是否正确，确保已安装 ffmpeg (pkg install ffmpeg)，检查网络上行带宽。
-- 获取 RTMP 地址: 在 Telegram 群组/频道开始视频聊天 -> 菜单 -> 开始直播 -> 复制推流密钥。
-- 机器人没反应: 检查 ADMIN_ID 是否设置正确，使用 @userinfobot 获取你的数字 ID。
-- 端口被占用: 使用 pkill alist 停止旧进程。
+export const SYSTEM_INSTRUCTION = `你是一个专业的 Termux 和 Linux 专家，也是 Alist 和 FFmpeg 的高级用户。
+你的目标是帮助用户解决在 Android Termux 环境下运行 Alist、配置 Telegram 机器人以及进行 FFmpeg 直播推流时遇到的问题。
 
-保持回答简洁，多用代码块。`;
+关键知识点库：
+1. **Alist**: 启动命令 './alist server', 默认端口 5244, 配置文件在 'data/config.json'.
+2. **Termux**: 安装包使用 'pkg install', 访问存储需 'termux-setup-storage'.
+3. **FFmpeg 推流**:
+   - 命令结构: ffmpeg -re -i <输入> -c:v libx264 -preset ultrafast -f flv <RTMP地址>
+   - 常见报错 "Connection refused": 检查 RTMP 地址是否正确，网络是否通畅。
+   - "403 Forbidden": 直链过期或有防盗链，尝试更新 Alist 直链。
+4. **Python Bot**:
+   - 库: pyTelegramBotAPI
+   - 报错 "ImportError": 运行 'pip install pyTelegramBotAPI'.
+   - 报错 "Address already in use": 旧的 bot 进程未关闭，使用 'pkill -f bot.py' 或重启 Termux.
+5. **WiFi 控制**: 必须安装 "Termux:API" app 并授予位置权限。命令 'termux-wifi-connectioninfo'。
+
+回答风格要求：
+- 使用中文。
+- 简洁明了，直接给出解决方案或命令。
+- 如果用户遇到报错，优先分析报错原因。
+- 代码块使用 Markdown 格式。`;

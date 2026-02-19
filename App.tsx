@@ -3,7 +3,7 @@ import { CommandBlock } from './components/CommandBlock';
 import { GeminiAssistant } from './components/GeminiAssistant';
 import { INSTALL_STEPS, POST_INSTALL_STEPS, BOT_GUIDE_STEPS } from './constants';
 import { InstallMethod } from './types';
-import { CommandLineIcon, WrenchScrewdriverIcon, QuestionMarkCircleIcon, PaperAirplaneIcon, WifiIcon } from '@heroicons/react/24/outline';
+import { CommandLineIcon, WrenchScrewdriverIcon, QuestionMarkCircleIcon, PaperAirplaneIcon, WifiIcon, SparklesIcon } from '@heroicons/react/24/outline';
 
 const App: React.FC = () => {
   const [activeMethod, setActiveMethod] = useState<InstallMethod>(InstallMethod.BINARY);
@@ -59,10 +59,19 @@ const App: React.FC = () => {
           </nav>
         </div>
         {/* Mobile Nav */}
-        <div className="md:hidden flex justify-around py-2 border-t border-slate-800 bg-slate-900/50">
-             <button onClick={() => setCurrentTab('guide')} className={`p-2 ${currentTab === 'guide' ? 'text-terminal-accent' : 'text-slate-500'}`}><CommandLineIcon className="w-6 h-6"/></button>
-             <button onClick={() => setCurrentTab('bot')} className={`p-2 ${currentTab === 'bot' ? 'text-terminal-accent' : 'text-slate-500'}`}><PaperAirplaneIcon className="w-6 h-6"/></button>
-             <button onClick={() => setCurrentTab('troubleshoot')} className={`p-2 ${currentTab === 'troubleshoot' ? 'text-terminal-accent' : 'text-slate-500'}`}><SparklesIcon className="w-6 h-6"/></button>
+        <div className="md:hidden flex justify-between py-2 border-t border-slate-800 bg-slate-900/50 px-2 gap-2">
+             <button onClick={() => setCurrentTab('guide')} className={`flex-1 flex flex-col items-center p-2 rounded-lg ${currentTab === 'guide' ? 'bg-slate-800 text-terminal-accent' : 'text-slate-500'}`}>
+               <CommandLineIcon className="w-6 h-6"/>
+               <span className="text-[10px] mt-1">安装</span>
+             </button>
+             <button onClick={() => setCurrentTab('bot')} className={`flex-1 flex flex-col items-center p-2 rounded-lg ${currentTab === 'bot' ? 'bg-slate-800 text-terminal-accent' : 'text-slate-500'}`}>
+               <PaperAirplaneIcon className="w-6 h-6"/>
+               <span className="text-[10px] mt-1">机器人</span>
+             </button>
+             <button onClick={() => setCurrentTab('troubleshoot')} className={`flex-1 flex flex-col items-center p-2 rounded-lg ${currentTab === 'troubleshoot' ? 'bg-slate-800 text-terminal-accent' : 'text-slate-500'}`}>
+               <SparklesIcon className="w-6 h-6"/>
+               <span className="text-[10px] mt-1">AI 诊断</span>
+             </button>
         </div>
       </header>
 
@@ -196,7 +205,7 @@ const App: React.FC = () => {
                   </h3>
                   <p className="text-slate-400 text-sm mt-1 mb-3">{step.description}</p>
                   
-                  <CommandBlock command={step.command} label={step.id === 'bot_script' ? 'PYTHON' : 'BASH'} />
+                  <CommandBlock command={step.command} label={step.id === 'bot_script' ? 'BASH' : 'BASH'} />
                   
                   {step.explanation && (
                     <div className="mt-2 text-xs text-slate-500 bg-slate-800/50 p-3 rounded border border-slate-700/50 italic">
@@ -226,6 +235,10 @@ const App: React.FC = () => {
                    const input = document.querySelector('input[type="text"]') as HTMLInputElement;
                    if(input) {
                      input.value = "如何让 Alist 在后台运行？";
+                     // Trigger change event if needed by React state, but simple set works for this demo
+                     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+                     nativeInputValueSetter?.call(input, "如何让 Alist 在后台运行？");
+                     input.dispatchEvent(new Event('input', { bubbles: true }));
                      input.focus();
                    }
                 }}
@@ -240,6 +253,9 @@ const App: React.FC = () => {
                    const input = document.querySelector('input[type="text"]') as HTMLInputElement;
                    if(input) {
                      input.value = "如何从电脑访问手机的 Alist？";
+                     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+                     nativeInputValueSetter?.call(input, "如何从电脑访问手机的 Alist？");
+                     input.dispatchEvent(new Event('input', { bubbles: true }));
                      input.focus();
                    }
                 }}
@@ -259,12 +275,5 @@ const App: React.FC = () => {
     </div>
   );
 };
-
-// Simple Icon component for reuse if needed, or import from heroicons
-const SparklesIcon = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
-    <path fillRule="evenodd" d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813a3.75 3.75 0 002.576-2.576l.813-2.846A.75.75 0 019 4.5zM6.97 15.03a.75.75 0 011.06 1.06l-2.25 2.25a.75.75 0 01-1.06 0l-.75-.75a.75.75 0 011.06-1.06l.22.22 1.72-1.72zm11.06-9.25a.75.75 0 00-1.06-1.06l-1.72 1.72-.22-.22a.75.75 0 00-1.06 1.06l.75.75a.75.75 0 001.06 0l2.25-2.25z" clipRule="evenodd" />
-  </svg>
-);
 
 export default App;

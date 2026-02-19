@@ -5,6 +5,7 @@ let client: GoogleGenAI | null = null;
 
 const getClient = () => {
   if (!client) {
+    // 确保 main.ts 已经加载了 .env 到 process.env
     client = new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
   return client;
@@ -26,6 +27,6 @@ export const generateHelpResponse = async (userQuery: string): Promise<string> =
     return response.text || "无法生成回复，请重试。";
   } catch (error) {
     console.error("Gemini API Error:", error);
-    return "抱歉，连接 AI 助手时出现错误，请检查网络连接。";
+    return "抱歉，连接 AI 助手时出现错误，请检查网络连接或 API Key 配置。";
   }
 };
