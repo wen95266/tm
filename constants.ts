@@ -105,7 +105,8 @@ import subprocess
 import time
 import threading
 import json
-import shlex
+import signal
+import os
 
 # --- 🚀 基础配置 ---
 BOT_TOKEN = '${ENV_BOT_TOKEN}'
@@ -126,7 +127,10 @@ stream_process = None
 
 def run_command(cmd):
     try:
-        return subprocess.getoutput(cmd)
+        # 使用 timeout 防止命令卡死，stderr=subprocess.STDOUT 合并错误输出
+        return subprocess.check_output(cmd, shell=True, timeout=10, stderr=subprocess.STDOUT).decode('utf-8').strip()
+    except subprocess.CalledProcessError as e:
+        return ""
     except Exception as e:
         return str(e)
 
@@ -149,14 +153,13 @@ def start_stream(message):
         video_url = parts[1]
         
         # 停止旧进程
-        if stream_process and stream_process.poll() is None:
-            stream_process.terminate()
-            time.sleep(1)
+        if stream_process:
+            stop_stream_process(stream_process)
 
         bot.reply_to(message, "🚀 正在启动 FFmpeg 推流...")
 
         # FFmpeg 参数优化: 
-        # -re (实时读取), ultrafast (低延迟编码), zerolatency
+        # -re (实时读取), ultrafast (低延迟编码), zerolatency (零延迟)
         cmd = [
             'ffmpeg', '-re', '-i', video_url,
             '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
@@ -166,18 +169,32 @@ def start_stream(message):
             '-f', 'flv', TG_RTMP_URL
         ]
 
-        stream_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # preexec_fn=os.setsid 创建新的进程组，方便后续 killpg 一起杀掉
+        stream_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=os.setsid)
         bot.reply_to(message, "✅ 推流已在后台运行！")
         
     except Exception as e:
         bot.reply_to(message, f"❌ 启动失败: {e}")
+
+def stop_stream_process(proc):
+    if proc and proc.poll() is None:
+        try:
+            # 尝试优雅终止进程组 (SIGTERM)
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            proc.wait(timeout=5)
+        except:
+            try:
+                # 强制杀死进程组 (SIGKILL)
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except:
+                pass
 
 @bot.message_handler(commands=['stop_stream'])
 def stop_stream_cmd(message):
     if not is_authorized(message): return
     global stream_process
     if stream_process and stream_process.poll() is None:
-        stream_process.terminate()
+        stop_stream_process(stream_process)
         stream_process = None
         bot.reply_to(message, "⏹ 直播推流已停止")
     else:
@@ -185,21 +202,43 @@ def stop_stream_cmd(message):
 
 # --- 📡 WiFi 监控 ---
 def check_wifi_loop():
+    print("📡 WiFi 监控服务已启动")
     while True:
         try:
             info_str = run_command('termux-wifi-connectioninfo')
-            info = json.loads(info_str) if info_str else {}
+            try:
+                info = json.loads(info_str)
+            except:
+                info = {}
             
+            # 检查 supplicant_state
             if info.get('supplicant_state') != 'COMPLETED':
-                print("⚠️ WiFi 断线，正在尝试备用网络...")
+                print("⚠️ WiFi 断线，正在扫描备用网络...")
+                
+                # 遍历配置尝试连接
                 for ssid, pwd in WIFI_CONFIG.items():
+                    print(f"🔄 尝试连接: {ssid}")
                     run_command(f'termux-wifi-connect -s "{ssid}" -p "{pwd}"')
-                    time.sleep(12)
-                    if 'COMPLETED' in run_command('termux-wifi-connectioninfo'):
-                        print(f"✅ 已连接到: {ssid}")
-                        break
+                    
+                    # 轮询检查连接状态 (最多等待 15秒)
+                    for _ in range(3):
+                        time.sleep(5)
+                        check = run_command('termux-wifi-connectioninfo')
+                        # 简单字符串检查，防止 JSON 解析失败导致逻辑中断
+                        if '"supplicant_state": "COMPLETED"' in check and f'"{ssid}"' in check:
+                            print(f"✅ 成功连接到: {ssid}")
+                            # 跳出重试循环
+                            break
+                    else:
+                        continue # 继续尝试下一个 SSID
+                    
+                    # 如果成功连接，跳出 SSID 循环，回到主监控循环
+                    break
+
             time.sleep(20)
-        except: time.sleep(20)
+        except Exception as e:
+            print(f"WiFi 监控错误: {e}")
+            time.sleep(20)
 
 # --- 🤖 机器人响应 ---
 @bot.message_handler(commands=['start'])
@@ -216,7 +255,12 @@ def send_welcome(message):
 @bot.message_handler(commands=['status'])
 def status(message):
     if not is_authorized(message): return
-    wifi = json.loads(run_command('termux-wifi-connectioninfo') or '{}').get('ssid', '未知')
+    try:
+        info_str = run_command('termux-wifi-connectioninfo')
+        wifi = json.loads(info_str).get('ssid', '未知')
+    except:
+        wifi = "获取失败 (请检查 Termux:API 权限)"
+        
     st = "🟢 推流中" if stream_process and stream_process.poll() is None else "🔴 未推流"
     bot.reply_to(message, f"📡 WiFi: {wifi}\\n🎬 直播: {st}")
 
@@ -229,6 +273,7 @@ def switch_wifi(message):
         if pwd:
             bot.reply_to(message, f"🔄 正在切换到 {ssid}...")
             run_command(f'termux-wifi-connect -s "{ssid}" -p "{pwd}"')
+            bot.reply_to(message, "指令已发送，请等待连接...")
         else:
             bot.reply_to(message, "❌ 未知 SSID (请先在脚本 WIFI_CONFIG 中添加)")
     except:
@@ -240,7 +285,13 @@ t.daemon = True
 t.start()
 
 print("Bot is running...")
-bot.polling()
+# 自动重连机制
+while True:
+    try:
+        bot.polling(non_stop=True, interval=2, timeout=20)
+    except Exception as e:
+        print(f"Bot 连接断开: {e}")
+        time.sleep(5)
 EOF`,
     explanation: '使用 cat 命令可以避免 nano 粘贴时的格式混乱。'
   },
