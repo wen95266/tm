@@ -158,7 +158,7 @@ const App: React.FC = () => {
                  <div className="h-px bg-slate-700 flex-1"></div>
               </div>
 
-              {POST_INSTALL_STEPS.map((step, index) => (
+              {POST_INSTALL_STEPS.map((step) => (
                 <div key={step.id} className="bg-terminal-card border border-slate-700 p-6 rounded-xl hover:border-terminal-accent/50 transition-colors">
                   <h3 className="text-lg font-bold text-slate-200 mb-2">{step.title}</h3>
                   <p className="text-slate-400 text-sm mb-4">{step.description}</p>
