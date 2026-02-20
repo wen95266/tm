@@ -2,26 +2,7 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// --- 1. Load .env manually ---
-const envPath = path.resolve(process.cwd(), '.env');
-if (fs.existsSync(envPath)) {
-  const envConfig = fs.readFileSync(envPath, 'utf-8');
-  envConfig.split('\n').forEach(line => {
-    const match = line.match(/^([^=]+)=(.*)$/);
-    if (match) {
-      const key = match[1].trim();
-      const value = match[2].trim();
-      if (key && value) {
-        process.env[key] = value;
-      }
-    }
-  });
-}
-
-const ENV_BOT_TOKEN = process.env.BOT_TOKEN || '你的_BOT_TOKEN';
-const ENV_ADMIN_ID = process.env.ADMIN_ID || '0';
-
-// --- 2. Helper Functions ---
+// --- Helper Functions ---
 const run = (cmd: string, ignoreError = false) => {
     console.log(`\x1b[36m> ${cmd}\x1b[0m`);
     try {
@@ -29,49 +10,75 @@ const run = (cmd: string, ignoreError = false) => {
     } catch (e) {
         if (!ignoreError) {
             console.error(`\x1b[31mCommand failed: ${cmd}\x1b[0m`);
-            process.exit(1);
+            // Don't exit process in module mode, just throw
+            throw new Error(`Command failed: ${cmd}`);
         } else {
             console.warn(`\x1b[33mCommand failed (ignored): ${cmd}\x1b[0m`);
         }
     }
 }
 
-console.log("\x1b[1;32m=== 开始全自动安装流程 ===\x1b[0m");
+export const startInstall = async () => {
+    // --- 1. Load .env manually ---
+    const envPath = path.resolve(process.cwd(), '.env');
+    if (fs.existsSync(envPath)) {
+        const envConfig = fs.readFileSync(envPath, 'utf-8');
+        envConfig.split('\n').forEach(line => {
+            const match = line.match(/^([^=]+)=(.*)$/);
+            if (match) {
+                const key = match[1].trim();
+                const value = match[2].trim();
+                if (key && value) {
+                    process.env[key] = value;
+                }
+            }
+        });
+    }
 
-// --- 3. Alist Installation ---
-console.log("\n\x1b[1;34m[1/5] 安装 Alist...\x1b[0m");
+    const ENV_BOT_TOKEN = process.env.BOT_TOKEN || '你的_BOT_TOKEN';
+    const ENV_ADMIN_ID = process.env.ADMIN_ID || '0';
 
-// Remove local binary if exists to avoid confusion
-if (fs.existsSync('alist')) {
-    console.log("清理旧的本地 Alist 文件...");
-    fs.unlinkSync('alist');
-}
+    console.log("\x1b[1;32m=== 开始全自动安装流程 ===\x1b[0m");
 
-// Install via pkg
-run('pkg install alist -y');
+    try {
+        // --- 2. Alist Installation ---
+        console.log("\n\x1b[1;34m[1/5] 安装 Alist...\x1b[0m");
 
-// Set Alist Password
-console.log("\n\x1b[1;34m[2/5] 配置 Alist...\x1b[0m");
-// Try to stop existing instance just in case
-run('pkill alist', true);
+        // Remove local binary if exists to avoid confusion
+        if (fs.existsSync('alist')) {
+            console.log("清理旧的本地 Alist 文件...");
+            fs.unlinkSync('alist');
+        }
 
-try {
-    const password = 'admin'; // Default password for auto-setup
-    // Use global command
-    run(`alist admin set ${password}`);
-    console.log(`\x1b[32mAlist 管理员密码已设置为: ${password}\x1b[0m`);
-} catch (e) {
-    console.error("设置密码失败，可能是第一次运行需要先启动一次生成配置？");
-}
+        // Install via pkg
+        run('pkg install alist -y');
 
-// --- 4. Bot Environment ---
-console.log("\n\x1b[1;34m[3/5] 安装 Bot 环境...\x1b[0m");
-run('pkg install python termux-api ffmpeg -y');
-run('pip install pyTelegramBotAPI');
+        // Set Alist Password
+        console.log("\n\x1b[1;34m[2/5] 配置 Alist...\x1b[0m");
+        // Try to stop existing instance just in case
+        run('pkill alist', true);
 
-// Generate bot.py
-console.log("\n\x1b[1;34m[4/5] 生成 bot.py...\x1b[0m");
-const botContent = `import telebot
+        try {
+            const password = 'admin'; // Default password for auto-setup
+            // Use global command
+            run(`alist admin set ${password}`);
+            console.log(`\x1b[32mAlist 管理员密码已设置为: ${password}\x1b[0m`);
+        } catch (_e) {
+            console.error("设置密码失败，可能是第一次运行需要先启动一次生成配置？");
+        }
+
+        // --- 3. Bot Environment ---
+        console.log("\n\x1b[1;34m[3/5] 安装 Bot 环境...\x1b[0m");
+        run('pkg install python termux-api ffmpeg -y');
+        // Upgrade pip first to avoid issues
+        run('pip install --upgrade pip', true);
+        run('pip install pyTelegramBotAPI');
+
+        console.log("\x1b[1;33m⚠️ 重要提示: 请确保你已安装 'Termux:API' 安卓应用，并授予其'位置信息'权限，否则 WiFi 功能将无法工作！\x1b[0m");
+
+        // --- 4. Generate bot.py ---
+        console.log("\n\x1b[1;34m[4/5] 生成 bot.py...\x1b[0m");
+        const botContent = `import telebot
 from telebot import types
 import subprocess
 import time
@@ -84,6 +91,8 @@ import re
 # --- 🚀 基础配置 ---
 BOT_TOKEN = '${ENV_BOT_TOKEN}'
 ADMIN_ID = ${ENV_ADMIN_ID} 
+
+print(f"Bot 启动中... Token: {BOT_TOKEN[:5]}*** Admin: {ADMIN_ID}")
 
 # --- ⚠️ 需手动修改的配置 ---
 # 1. Telegram 直播推流地址 (rtmp://...)
@@ -114,10 +123,16 @@ def run_command(cmd):
 
 def is_authorized(message):
     if ADMIN_ID == 0: return True
+    user_id = None
     if hasattr(message, 'from_user'):
-        return message.from_user.id == ADMIN_ID
-    if hasattr(message, 'message'): # CallbackQuery
-        return message.message.chat.id == ADMIN_ID
+        user_id = message.from_user.id
+    elif hasattr(message, 'message'): # CallbackQuery
+        user_id = message.message.chat.id
+    
+    if user_id == ADMIN_ID:
+        return True
+    
+    print(f"⚠️ 未授权访问: {user_id} (需要: {ADMIN_ID})")
     return False
 
 # --- 🛠 辅助函数 ---
@@ -250,7 +265,7 @@ def get_wifi_keyboard():
 
 # --- 🤖 消息处理 ---
 
-@bot.message_handler(commands=['start', 'menu'])
+@bot.message_handler(commands=['start', 'menu', 'help'])
 def send_menu(message):
     if not is_authorized(message): return
     bot.reply_to(message, "🤖 **Termux 控制台**", reply_markup=get_main_keyboard())
@@ -265,7 +280,7 @@ def callback_handler(call):
         
     elif call.data == "menu_wifi":
         bot.edit_message_text("📡 **正在扫描 WiFi...**", call.message.chat.id, call.message.message_id)
-        bot.edit_message_text("📡 **WiFi 列表**\n点击名称连接 (需在配置中预存密码)", call.message.chat.id, call.message.message_id, reply_markup=get_wifi_keyboard())
+        bot.edit_message_text("📡 **WiFi 列表**\\n点击名称连接 (需在配置中预存密码)", call.message.chat.id, call.message.message_id, reply_markup=get_wifi_keyboard())
         
     elif call.data == "refresh_wifi":
         bot.answer_callback_query(call.id, "正在刷新...")
@@ -275,7 +290,7 @@ def callback_handler(call):
         wifi = get_current_wifi()
         internet = "✅ 在线" if check_internet() else "❌ 离线"
         st = "🟢 推流中" if stream_process and stream_process.poll() is None else "🔴 未推流"
-        text = f"📊 **系统状态**\n\n📡 WiFi: {wifi}\nww🌐 网络: {internet}\n🎬 直播: {st}"
+        text = f"📊 **系统状态**\\n\\n📡 WiFi: {wifi}\\n🌐 网络: {internet}\\n🎬 直播: {st}"
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=get_main_keyboard())
         
     elif call.data == "toggle_autoswitch":
@@ -374,48 +389,59 @@ while True:
         time.sleep(5)
 `;
 
-fs.writeFileSync('bot.py', botContent);
-console.log("bot.py 已生成。");
+        fs.writeFileSync('bot.py', botContent);
+        console.log("bot.py 已生成。");
 
-// --- 5. PM2 Configuration ---
-console.log("\n\x1b[1;34m[5/5] 配置 PM2 自动启动...\x1b[0m");
-run('npm install pm2 -g');
+        // --- 5. PM2 Configuration ---
+        console.log("\n\x1b[1;34m[5/5] 配置 PM2 自动启动...\x1b[0m");
+        run('npm install pm2 -g');
 
-// Stop existing PM2 processes to avoid duplicates
-run('pm2 delete alist', true);
-run('pm2 delete bot', true);
+        // Stop existing PM2 processes to avoid duplicates
+        run('pm2 delete alist', true);
+        run('pm2 delete bot', true);
 
-// Start processes
-// Get alist path
-let alistPath = 'alist';
-try {
-    alistPath = execSync('which alist').toString().trim();
-} catch (e) {
-    console.warn("Could not find alist in PATH, assuming 'alist'");
+        // Start processes
+        // Get alist path
+        let alistPath = 'alist';
+        try {
+            alistPath = execSync('which alist').toString().trim();
+        } catch (_e) {
+            console.warn("Could not find alist in PATH, assuming 'alist'");
+        }
+        run(`pm2 start ${alistPath} --name alist -- server`);
+        run('pm2 start python --name bot -- bot.py');
+
+        // Save and resurrect
+        run('pm2 save');
+
+        // Add to .bashrc if not present
+        const bashrcPath = path.join(process.env.HOME || '', '.bashrc');
+        const resurrectCmd = 'pm2 resurrect';
+        let bashrcContent = '';
+        if (fs.existsSync(bashrcPath)) {
+            bashrcContent = fs.readFileSync(bashrcPath, 'utf-8');
+        }
+
+        if (!bashrcContent.includes(resurrectCmd)) {
+            fs.appendFileSync(bashrcPath, `\n${resurrectCmd}\n`);
+            console.log("已将 'pm2 resurrect' 添加到 .bashrc");
+        } else {
+            console.log(".bashrc 已包含 pm2 resurrect");
+        }
+
+        console.log("\n\x1b[1;32m=== ✅ 安装全部完成！ ===\x1b[0m");
+        console.log("Alist 访问地址: http://127.0.0.1:5244");
+        console.log("Alist 默认密码: admin");
+        console.log("Bot 状态: 正在后台运行");
+        console.log("PM2 状态: 已配置开机自启");
+        console.log("提示: 运行 'npm start' 可进入管理菜单。");
+
+    } catch (error) {
+        console.error("\n\x1b[1;31m❌ 安装过程中出错:\x1b[0m", error);
+    }
+};
+
+// If run directly (not imported)
+if (import.meta.url === `file://${process.argv[1]}`) {
+    startInstall();
 }
-run(`pm2 start ${alistPath} --name alist -- server`);
-run('pm2 start python --name bot -- bot.py');
-
-// Save and resurrect
-run('pm2 save');
-
-// Add to .bashrc if not present
-const bashrcPath = path.join(process.env.HOME || '', '.bashrc');
-const resurrectCmd = 'pm2 resurrect';
-let bashrcContent = '';
-if (fs.existsSync(bashrcPath)) {
-    bashrcContent = fs.readFileSync(bashrcPath, 'utf-8');
-}
-
-if (!bashrcContent.includes(resurrectCmd)) {
-    fs.appendFileSync(bashrcPath, `\n${resurrectCmd}\n`);
-    console.log("已将 'pm2 resurrect' 添加到 .bashrc");
-} else {
-    console.log(".bashrc 已包含 pm2 resurrect");
-}
-
-console.log("\n\x1b[1;32m=== ✅ 安装全部完成！ ===\x1b[0m");
-console.log("Alist 访问地址: http://127.0.0.1:5244");
-console.log("Alist 默认密码: admin");
-console.log("Bot 状态: 正在后台运行");
-console.log("PM2 状态: 已配置开机自启");
