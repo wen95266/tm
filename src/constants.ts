@@ -311,6 +311,51 @@ EOF`,
   }
 ];
 
+export const PM2_STEPS: CommandStep[] = [
+  {
+    id: 'pm2_install',
+    title: '1. 安装 PM2',
+    description: 'PM2 是一个守护进程管理器，可以帮你自动在后台运行程序，并在崩溃时自动重启。',
+    command: 'npm install pm2 -g',
+    explanation: '全局安装 PM2。'
+  },
+  {
+    id: 'pm2_alist',
+    title: '2. 使用 PM2 启动 Alist',
+    description: '将 Alist 加入 PM2 管理。',
+    command: 'pm2 start ./alist --name alist -- server',
+    explanation: '这会启动 Alist 并命名为 "alist"。如果之前手动运行了 Alist，请先用 Ctrl+C 停止它。'
+  },
+  {
+    id: 'pm2_bot',
+    title: '3. 使用 PM2 启动 Bot',
+    description: '将 Telegram Bot 加入 PM2 管理。',
+    command: 'pm2 start python --name bot -- bot.py',
+    explanation: '这会启动 Bot 并命名为 "bot"。确保你已经配置好了 bot.py。'
+  },
+  {
+    id: 'pm2_save',
+    title: '4. 保存当前进程',
+    description: '保存当前的运行列表，以便下次恢复。',
+    command: 'pm2 save',
+    explanation: '这会将当前运行的 alist 和 bot 保存到 PM2 的转储文件中。'
+  },
+  {
+    id: 'pm2_startup',
+    title: '5. 设置开机自启 (Termux)',
+    description: '在 Termux 中，我们需要通过 .bashrc 来实现自启。',
+    command: 'echo "pm2 resurrect" >> ~/.bashrc',
+    explanation: '这行命令会将 "pm2 resurrect" 添加到你的 shell 配置文件中。每次打开 Termux 时，它都会自动恢复之前保存的进程。'
+  },
+  {
+    id: 'pm2_commands',
+    title: '6. 常用 PM2 命令',
+    description: '一些管理进程的常用命令。',
+    command: 'pm2 list (查看列表) | pm2 logs (查看日志) | pm2 stop all (停止所有)',
+    explanation: '记住这些命令以便日后维护。'
+  }
+];
+
 export const SYSTEM_INSTRUCTION = `你是一个专业的 Termux 和 Linux 专家，也是 Alist 和 FFmpeg 的高级用户。
 你的目标是帮助用户解决在 Android Termux 环境下运行 Alist、配置 Telegram 机器人以及进行 FFmpeg 直播推流时遇到的问题。
 
