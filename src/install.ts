@@ -40,25 +40,25 @@ console.log("\x1b[1;32m=== 开始全自动安装流程 ===\x1b[0m");
 
 // --- 3. Alist Installation ---
 console.log("\n\x1b[1;34m[1/5] 安装 Alist...\x1b[0m");
-if (!fs.existsSync('alist')) {
-    run('pkg install wget tar -y');
-    run('wget https://github.com/alist-org/alist/releases/latest/download/alist-linux-arm64.tar.gz');
-    run('tar -zxvf alist-linux-arm64.tar.gz');
-    run('chmod +x alist');
-    run('rm alist-linux-arm64.tar.gz');
-} else {
-    console.log("Alist 已存在，跳过下载。");
+
+// Remove local binary if exists to avoid confusion
+if (fs.existsSync('alist')) {
+    console.log("清理旧的本地 Alist 文件...");
+    fs.unlinkSync('alist');
 }
+
+// Install via pkg
+run('pkg install alist -y');
 
 // Set Alist Password
 console.log("\n\x1b[1;34m[2/5] 配置 Alist...\x1b[0m");
 // Try to stop existing instance just in case
 run('pkill alist', true);
-// Start alist briefly to generate config if needed, or just run admin set
-// We can run admin set directly.
+
 try {
     const password = 'admin'; // Default password for auto-setup
-    run(`./alist admin set ${password}`);
+    // Use global command
+    run(`alist admin set ${password}`);
     console.log(`\x1b[32mAlist 管理员密码已设置为: ${password}\x1b[0m`);
 } catch (e) {
     console.error("设置密码失败，可能是第一次运行需要先启动一次生成配置？");
@@ -277,7 +277,14 @@ run('pm2 delete alist', true);
 run('pm2 delete bot', true);
 
 // Start processes
-run('pm2 start ./alist --name alist -- server');
+// Get alist path
+let alistPath = 'alist';
+try {
+    alistPath = execSync('which alist').toString().trim();
+} catch (e) {
+    console.warn("Could not find alist in PATH, assuming 'alist'");
+}
+run(`pm2 start ${alistPath} --name alist -- server`);
 run('pm2 start python --name bot -- bot.py');
 
 // Save and resurrect

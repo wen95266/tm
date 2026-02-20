@@ -10,40 +10,21 @@ export const INSTALL_STEPS: Record<InstallMethod, CommandStep[]> = {
     {
       id: 'update',
       title: '更新 Termux',
-      description: '首先，确保你的软件包列表和已安装的程序是最新的，以避免冲突。',
+      description: '首先，确保你的软件包列表和已安装的程序是最新的。',
       command: 'pkg update && pkg upgrade -y',
-      explanation: '这将更新包存储库列表并升级已安装的软件。'
     },
     {
-      id: 'deps',
-      title: '安装依赖',
-      description: '我们需要 wget 来下载文件，tar 来解压文件。',
-      command: 'pkg install wget tar -y',
-    },
-    {
-      id: 'download',
-      title: '下载 Alist (ARM64)',
-      description: '下载适用于 Android ARM64 架构（大多数现代手机的标准）的最新二进制文件。',
-      command: 'wget https://github.com/alist-org/alist/releases/latest/download/alist-linux-android-arm64.tar.gz',
-      explanation: '从官方 GitHub 仓库获取最新的压缩可执行文件。'
-    },
-    {
-      id: 'extract',
-      title: '解压文件',
-      description: '解压下载的压缩包。',
-      command: 'tar -zxvf alist-linux-android-arm64.tar.gz',
-    },
-    {
-      id: 'permission',
-      title: '授予执行权限',
-      description: '使二进制文件可执行。',
-      command: 'chmod +x alist',
+      id: 'install',
+      title: '安装 Alist',
+      description: 'Termux 官方仓库已包含 Alist，直接安装即可。',
+      command: 'pkg install alist -y',
+      explanation: '这会自动安装最新版本的 Alist 并配置好环境。'
     },
     {
       id: 'run',
       title: '启动服务器',
       description: '启动 Alist 服务器。',
-      command: './alist server',
+      command: 'alist server',
       explanation: '这将启动服务器。你应该能看到日志显示服务器正在 5244 端口运行。'
     }
   ],
@@ -68,7 +49,7 @@ export const POST_INSTALL_STEPS: CommandStep[] = [
     id: 'password',
     title: '设置管理员密码',
     description: '打开一个新会话（从 Termux 左边缘向右滑 -> New Session），运行此命令设置密码。',
-    command: './alist admin set 123456',
+    command: 'alist admin set 123456',
     explanation: '将 "123456" 替换为你想要的密码。不要在运行服务器的同一个终端窗口中输入此命令。'
   },
   {
@@ -323,7 +304,7 @@ export const PM2_STEPS: CommandStep[] = [
     id: 'pm2_alist',
     title: '2. 使用 PM2 启动 Alist',
     description: '将 Alist 加入 PM2 管理。',
-    command: 'pm2 start ./alist --name alist -- server',
+    command: 'pm2 start alist --name alist -- server',
     explanation: '这会启动 Alist 并命名为 "alist"。如果之前手动运行了 Alist，请先用 Ctrl+C 停止它。'
   },
   {
