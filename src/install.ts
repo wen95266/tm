@@ -72,12 +72,14 @@ run('pip install pyTelegramBotAPI');
 // Generate bot.py
 console.log("\n\x1b[1;34m[4/5] 生成 bot.py...\x1b[0m");
 const botContent = `import telebot
+from telebot import types
 import subprocess
 import time
 import threading
 import json
 import signal
 import os
+import re
 
 # --- 🚀 基础配置 ---
 BOT_TOKEN = '${ENV_BOT_TOKEN}'
@@ -88,18 +90,23 @@ ADMIN_ID = ${ENV_ADMIN_ID}
 TG_RTMP_URL = 'rtmp://你的服务器地址/密钥'
 
 # 2. WiFi 自动重连配置 (SSID: 密码)
+# 只有在此列表中的 WiFi 才能自动重连或通过菜单一键连接
 WIFI_CONFIG = {
     'MyHomeWifi': 'password123',
     'MyOfficeWifi': 'password456'
 }
 
+# 3. 网络检测目标 (用于判断是否断网)
+PING_TARGET = '223.5.5.5' # 阿里DNS，国内通用
+
 bot = telebot.TeleBot(BOT_TOKEN)
 stream_process = None
+auto_switch_enabled = True # 默认开启自动切换
 
 def run_command(cmd):
     try:
         # 使用 timeout 防止命令卡死，stderr=subprocess.STDOUT 合并错误输出
-        return subprocess.check_output(cmd, shell=True, timeout=10, stderr=subprocess.STDOUT).decode('utf-8').strip()
+        return subprocess.check_output(cmd, shell=True, timeout=15, stderr=subprocess.STDOUT).decode('utf-8').strip()
     except subprocess.CalledProcessError as e:
         return ""
     except Exception as e:
@@ -107,156 +114,258 @@ def run_command(cmd):
 
 def is_authorized(message):
     if ADMIN_ID == 0: return True
-    return message.from_user.id == ADMIN_ID
+    if hasattr(message, 'from_user'):
+        return message.from_user.id == ADMIN_ID
+    if hasattr(message, 'message'): # CallbackQuery
+        return message.message.chat.id == ADMIN_ID
+    return False
+
+# --- 🛠 辅助函数 ---
+
+def check_internet():
+    """检测网络连通性"""
+    try:
+        subprocess.check_call(['ping', '-c', '1', '-W', '2', PING_TARGET], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except:
+        return False
+
+def get_current_wifi():
+    """获取当前连接的 WiFi SSID"""
+    try:
+        info_str = run_command('termux-wifi-connectioninfo')
+        info = json.loads(info_str)
+        return info.get('ssid', '未连接')
+    except:
+        return "获取失败"
+
+def get_scan_results():
+    """扫描附近的 WiFi"""
+    try:
+        res = run_command('termux-wifi-scaninfo')
+        if not res: return []
+        scan_list = json.loads(res)
+        # 去重并按信号强度排序
+        seen = set()
+        unique_list = []
+        for wifi in scan_list:
+            ssid = wifi.get('ssid')
+            if ssid and ssid not in seen:
+                seen.add(ssid)
+                unique_list.append(wifi)
+        # 信号强度 rssi 一般是负数，越大越好
+        unique_list.sort(key=lambda x: x.get('rssi', -100), reverse=True)
+        return unique_list
+    except Exception as e:
+        print(f"扫描失败: {e}")
+        return []
+
+def connect_wifi(ssid, password):
+    """连接指定 WiFi"""
+    print(f"🔄 正在连接: {ssid}...")
+    run_command(f'termux-wifi-connect -s "{ssid}" -p "{password}"')
+    # 等待连接结果
+    for _ in range(10):
+        time.sleep(2)
+        curr = get_current_wifi()
+        if curr == ssid:
+            return True
+    return False
 
 # --- 📺 推流逻辑 ---
-@bot.message_handler(commands=['stream'])
-def start_stream(message):
-    if not is_authorized(message): return
+def start_ffmpeg_stream(video_url, chat_id):
     global stream_process
-    
+    if stream_process:
+        stop_stream_process(stream_process)
+
+    bot.send_message(chat_id, "🚀 正在启动 FFmpeg 推流...")
+
+    cmd = [
+        'ffmpeg', '-re', '-i', video_url,
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
+        '-b:v', '2500k', '-maxrate', '3000k', '-bufsize', '6000k',
+        '-r', '30', '-g', '60',
+        '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
+        '-f', 'flv', TG_RTMP_URL
+    ]
+
     try:
-        parts = message.text.split(maxsplit=1)
-        if len(parts) < 2:
-            bot.reply_to(message, "❌ 用法: /stream <直链URL>")
-            return
-
-        video_url = parts[1]
-        
-        # 停止旧进程
-        if stream_process:
-            stop_stream_process(stream_process)
-
-        bot.reply_to(message, "🚀 正在启动 FFmpeg 推流...")
-
-        # FFmpeg 参数优化: 
-        # -re (实时读取), ultrafast (低延迟编码), zerolatency (零延迟)
-        cmd = [
-            'ffmpeg', '-re', '-i', video_url,
-            '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
-            '-b:v', '2500k', '-maxrate', '3000k', '-bufsize', '6000k',
-            '-r', '30', '-g', '60',
-            '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
-            '-f', 'flv', TG_RTMP_URL
-        ]
-
-        # preexec_fn=os.setsid 创建新的进程组，方便后续 killpg 一起杀掉
         stream_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=os.setsid)
-        bot.reply_to(message, "✅ 推流已在后台运行！")
-        
+        bot.send_message(chat_id, "✅ 推流已在后台运行！")
     except Exception as e:
-        bot.reply_to(message, f"❌ 启动失败: {e}")
+        bot.send_message(chat_id, f"❌ 启动失败: {e}")
 
 def stop_stream_process(proc):
     if proc and proc.poll() is None:
         try:
-            # 尝试优雅终止进程组 (SIGTERM)
             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
             proc.wait(timeout=5)
         except:
             try:
-                # 强制杀死进程组 (SIGKILL)
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
             except:
                 pass
 
-@bot.message_handler(commands=['stop_stream'])
-def stop_stream_cmd(message):
-    if not is_authorized(message): return
-    global stream_process
-    if stream_process and stream_process.poll() is None:
-        stop_stream_process(stream_process)
-        stream_process = None
-        bot.reply_to(message, "⏹ 直播推流已停止")
-    else:
-        bot.reply_to(message, "⚠️ 当前无正在进行的推流")
+# --- ⌨️ 键盘菜单 ---
 
-# --- 📡 WiFi 监控 ---
-def check_wifi_loop():
-    print("📡 WiFi 监控服务已启动")
-    while True:
-        try:
-            info_str = run_command('termux-wifi-connectioninfo')
-            try:
-                info = json.loads(info_str)
-            except:
-                info = {}
-            
-            # 检查 supplicant_state
-            if info.get('supplicant_state') != 'COMPLETED':
-                print("⚠️ WiFi 断线，正在扫描备用网络...")
-                
-                # 遍历配置尝试连接
-                for ssid, pwd in WIFI_CONFIG.items():
-                    print(f"🔄 尝试连接: {ssid}")
-                    run_command(f'termux-wifi-connect -s "{ssid}" -p "{pwd}"')
-                    
-                    # 轮询检查连接状态 (最多等待 15秒)
-                    for _ in range(3):
-                        time.sleep(5)
-                        check = run_command('termux-wifi-connectioninfo')
-                        # 简单字符串检查，防止 JSON 解析失败导致逻辑中断
-                        if '"supplicant_state": "COMPLETED"' in check and f'"{ssid}"' in check:
-                            print(f"✅ 成功连接到: {ssid}")
-                            # 跳出重试循环
-                            break
-                    else:
-                        continue # 继续尝试下一个 SSID
-                    
-                    # 如果成功连接，跳出 SSID 循环，回到主监控循环
-                    break
+def get_main_keyboard():
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    btn_wifi = types.InlineKeyboardButton("📡 WiFi 管理", callback_data="menu_wifi")
+    btn_status = types.InlineKeyboardButton("📊 系统状态", callback_data="status")
+    btn_stream = types.InlineKeyboardButton("🎬 开始推流", callback_data="stream_input")
+    btn_stop = types.InlineKeyboardButton("⏹ 停止推流", callback_data="stop_stream")
+    markup.add(btn_wifi, btn_status, btn_stream, btn_stop)
+    return markup
 
-            time.sleep(20)
-        except Exception as e:
-            print(f"WiFi 监控错误: {e}")
-            time.sleep(20)
-
-# --- 🤖 机器人响应 ---
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    if not is_authorized(message): return
-    bot.reply_to(message, 
-        "🤖 **Termux 助手**\\n"
-        "🎬 /stream <url> - 推流\\n"
-        "⏹ /stop_stream - 停止\\n"
-        "📡 /status - 状态\\n"
-        "🔄 /switch <ssid> - 切WiFi"
-    )
-
-@bot.message_handler(commands=['status'])
-def status(message):
-    if not is_authorized(message): return
-    try:
-        info_str = run_command('termux-wifi-connectioninfo')
-        wifi = json.loads(info_str).get('ssid', '未知')
-    except:
-        wifi = "获取失败 (请检查 Termux:API 权限)"
+def get_wifi_keyboard():
+    markup = types.InlineKeyboardMarkup()
+    
+    # 1. 扫描到的 WiFi
+    scan_list = get_scan_results()
+    current_ssid = get_current_wifi()
+    
+    markup.add(types.InlineKeyboardButton(f"当前: {current_ssid}", callback_data="refresh_wifi"))
+    
+    count = 0
+    for wifi in scan_list:
+        if count >= 8: break # 最多显示8个
+        ssid = wifi['ssid']
+        rssi = wifi.get('rssi', 0)
         
-    st = "🟢 推流中" if stream_process and stream_process.poll() is None else "🔴 未推流"
-    bot.reply_to(message, f"📡 WiFi: {wifi}\\n🎬 直播: {st}")
+        # 标记已知密码的 WiFi
+        icon = "🔒"
+        if ssid in WIFI_CONFIG:
+            icon = "✅" if ssid == current_ssid else "🔗"
+        
+        btn_text = f"{icon} {ssid} ({rssi}dBm)"
+        markup.add(types.InlineKeyboardButton(btn_text, callback_data=f"conn_{ssid}"))
+        count += 1
 
-@bot.message_handler(commands=['switch'])
-def switch_wifi(message):
+    # 功能按钮
+    toggle_text = "⏸ 暂停自动切换" if auto_switch_enabled else "▶️ 开启自动切换"
+    markup.add(types.InlineKeyboardButton(toggle_text, callback_data="toggle_autoswitch"))
+    markup.add(types.InlineKeyboardButton("🔄 刷新列表", callback_data="refresh_wifi"))
+    markup.add(types.InlineKeyboardButton("🔙 返回主菜单", callback_data="main_menu"))
+    return markup
+
+# --- 🤖 消息处理 ---
+
+@bot.message_handler(commands=['start', 'menu'])
+def send_menu(message):
     if not is_authorized(message): return
-    try:
-        ssid = message.text.split(maxsplit=1)[1]
+    bot.reply_to(message, "🤖 **Termux 控制台**", reply_markup=get_main_keyboard())
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_handler(call):
+    if not is_authorized(call): return
+    global auto_switch_enabled, stream_process
+    
+    if call.data == "main_menu":
+        bot.edit_message_text("🤖 **Termux 控制台**", call.message.chat.id, call.message.message_id, reply_markup=get_main_keyboard())
+        
+    elif call.data == "menu_wifi":
+        bot.edit_message_text("📡 **正在扫描 WiFi...**", call.message.chat.id, call.message.message_id)
+        bot.edit_message_text("📡 **WiFi 列表**\n点击名称连接 (需在配置中预存密码)", call.message.chat.id, call.message.message_id, reply_markup=get_wifi_keyboard())
+        
+    elif call.data == "refresh_wifi":
+        bot.answer_callback_query(call.id, "正在刷新...")
+        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=get_wifi_keyboard())
+        
+    elif call.data == "status":
+        wifi = get_current_wifi()
+        internet = "✅ 在线" if check_internet() else "❌ 离线"
+        st = "🟢 推流中" if stream_process and stream_process.poll() is None else "🔴 未推流"
+        text = f"📊 **系统状态**\n\n📡 WiFi: {wifi}\nww🌐 网络: {internet}\n🎬 直播: {st}"
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=get_main_keyboard())
+        
+    elif call.data == "toggle_autoswitch":
+        auto_switch_enabled = not auto_switch_enabled
+        status = "已开启" if auto_switch_enabled else "已暂停"
+        bot.answer_callback_query(call.id, f"自动切换 {status}")
+        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=get_wifi_keyboard())
+        
+    elif call.data.startswith("conn_"):
+        ssid = call.data[5:]
         pwd = WIFI_CONFIG.get(ssid)
         if pwd:
-            bot.reply_to(message, f"🔄 正在切换到 {ssid}...")
-            run_command(f'termux-wifi-connect -s "{ssid}" -p "{pwd}"')
-            bot.reply_to(message, "指令已发送，请等待连接...")
+            bot.answer_callback_query(call.id, f"正在连接 {ssid}...")
+            if connect_wifi(ssid, pwd):
+                bot.send_message(call.message.chat.id, f"✅ 成功连接到 {ssid}")
+                bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=get_wifi_keyboard())
+            else:
+                bot.send_message(call.message.chat.id, f"❌ 连接 {ssid} 失败")
         else:
-            bot.reply_to(message, "❌ 未知 SSID (请先在脚本 WIFI_CONFIG 中添加)")
-    except:
-        bot.reply_to(message, "用法: /switch <ssid>")
+            bot.answer_callback_query(call.id, "❌ 未知密码，请先在 bot.py 配置", show_alert=True)
+
+    elif call.data == "stop_stream":
+        if stream_process:
+            stop_stream_process(stream_process)
+            stream_process = None
+            bot.answer_callback_query(call.id, "直播已停止")
+            bot.edit_message_text("⏹ 直播推流已停止", call.message.chat.id, call.message.message_id, reply_markup=get_main_keyboard())
+        else:
+            bot.answer_callback_query(call.id, "当前没有直播")
+
+    elif call.data == "stream_input":
+        msg = bot.send_message(call.message.chat.id, "请回复直播源链接 (RTMP/HTTP/M3U8):")
+        bot.register_next_step_handler(msg, handle_stream_url)
+
+def handle_stream_url(message):
+    if not is_authorized(message): return
+    url = message.text.strip()
+    start_ffmpeg_stream(url, message.chat.id)
+
+# --- 📡 自动切换守护线程 ---
+def auto_switch_loop():
+    print("📡 WiFi 自动切换服务已启动")
+    fail_count = 0
+    
+    while True:
+        time.sleep(10)
+        if not auto_switch_enabled: continue
+        
+        # 1. 检查网络连通性
+        if check_internet():
+            fail_count = 0
+            continue
+            
+        fail_count += 1
+        print(f"⚠️ 网络检测失败 ({fail_count}/3)")
+        
+        if fail_count >= 3:
+            print("🚨 确认断网，开始寻找备用 WiFi...")
+            current_ssid = get_current_wifi()
+            scan_list = get_scan_results()
+            
+            # 寻找配置中存在且信号最好的 WiFi
+            target_ssid = None
+            for wifi in scan_list:
+                ssid = wifi['ssid']
+                if ssid in WIFI_CONFIG and ssid != current_ssid:
+                    target_ssid = ssid
+                    break # 列表已按信号排序，找到的第一个就是最好的
+            
+            if target_ssid:
+                print(f"🔄 尝试自动切换到: {target_ssid}")
+                if connect_wifi(target_ssid, WIFI_CONFIG[target_ssid]):
+                    print("✅ 自动切换成功")
+                    fail_count = 0
+                    # 可选：通知管理员
+                    # bot.send_message(ADMIN_ID, f"⚠️ 网络异常，已自动切换到 {target_ssid}")
+                else:
+                    print("❌ 自动切换失败")
+            else:
+                print("❌ 未找到可用的备用 WiFi")
+                
+            # 无论成功失败，都等待一段时间再重试，避免频繁切换
+            time.sleep(30) 
 
 # 启动后台线程
-t = threading.Thread(target=check_wifi_loop)
+t = threading.Thread(target=auto_switch_loop)
 t.daemon = True
 t.start()
 
 print("Bot is running...")
-# 自动重连机制
 while True:
     try:
         bot.polling(non_stop=True, interval=2, timeout=20)
