@@ -42,10 +42,10 @@ console.log("\x1b[1;32m=== 开始全自动安装流程 ===\x1b[0m");
 console.log("\n\x1b[1;34m[1/5] 安装 Alist...\x1b[0m");
 if (!fs.existsSync('alist')) {
     run('pkg install wget tar -y');
-    run('wget https://github.com/alist-org/alist/releases/latest/download/alist-linux-android-arm64.tar.gz');
-    run('tar -zxvf alist-linux-android-arm64.tar.gz');
+    run('wget https://github.com/alist-org/alist/releases/latest/download/alist-linux-arm64.tar.gz');
+    run('tar -zxvf alist-linux-arm64.tar.gz');
     run('chmod +x alist');
-    run('rm alist-linux-android-arm64.tar.gz');
+    run('rm alist-linux-arm64.tar.gz');
 } else {
     console.log("Alist 已存在，跳过下载。");
 }
