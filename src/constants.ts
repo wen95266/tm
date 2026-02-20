@@ -2,8 +2,8 @@ import { CommandStep, InstallMethod } from './types';
 
 // 获取通过 setup.sh 注入的环境变量 (CLI 模式下从 process.env 读取)
 // 注意：main.ts 会负责加载 .env 文件到 process.env
-const ENV_BOT_TOKEN = process.env.VITE_BOT_TOKEN || '你的_BOT_TOKEN';
-const ENV_ADMIN_ID = process.env.VITE_ADMIN_ID || '0';
+const ENV_BOT_TOKEN = process.env.BOT_TOKEN || '你的_BOT_TOKEN';
+const ENV_ADMIN_ID = process.env.ADMIN_ID || '0';
 
 export const INSTALL_STEPS: Record<InstallMethod, CommandStep[]> = {
   [InstallMethod.BINARY]: [

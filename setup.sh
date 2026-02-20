@@ -19,6 +19,11 @@ fi
 # 3. Install dependencies
 if [ -f "package.json" ]; then
     echo "正在安装项目依赖..."
+    # Remove node_modules and package-lock.json to ensure clean install if previous failed
+    if [ -d "node_modules" ]; then
+        echo "清理旧依赖..."
+        rm -rf node_modules package-lock.json
+    fi
     npm install
 else
     echo -e "\033[1;31m错误: 未找到 package.json。请确保你在正确的目录下。\033[0m"
@@ -41,10 +46,10 @@ if [ ! -z "$API_KEY" ]; then
     echo "API_KEY=$API_KEY" >> .env
 fi
 if [ ! -z "$bot_token" ]; then
-    echo "VITE_BOT_TOKEN=$bot_token" >> .env
+    echo "BOT_TOKEN=$bot_token" >> .env
 fi
 if [ ! -z "$admin_id" ]; then
-    echo "VITE_ADMIN_ID=$admin_id" >> .env
+    echo "ADMIN_ID=$admin_id" >> .env
 fi
 
 echo -e "\033[1;32m配置已保存！\033[0m"

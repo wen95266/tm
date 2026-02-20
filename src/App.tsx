@@ -3,7 +3,7 @@ import { CommandBlock } from './components/CommandBlock';
 import { GeminiAssistant } from './components/GeminiAssistant';
 import { INSTALL_STEPS, POST_INSTALL_STEPS, BOT_GUIDE_STEPS } from './constants';
 import { InstallMethod } from './types';
-import { CommandLineIcon, WrenchScrewdriverIcon, QuestionMarkCircleIcon, PaperAirplaneIcon, WifiIcon, SparklesIcon } from '@heroicons/react/24/outline';
+import { CommandLineIcon, WrenchScrewdriverIcon, PaperAirplaneIcon, WifiIcon, SparklesIcon } from '@heroicons/react/24/outline';
 
 const App: React.FC = () => {
   const [activeMethod, setActiveMethod] = useState<InstallMethod>(InstallMethod.BINARY);
@@ -200,12 +200,12 @@ const App: React.FC = () => {
                   <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-slate-800 border-2 border-blue-400 group-hover:bg-blue-400 transition-colors"></div>
                   
                   <h3 className="text-lg font-bold text-slate-200 flex items-center gap-2">
-                    <span className="text-blue-400 font-mono text-sm opacity-60">步骤 {index + 1}</span>
+                    <span className="text-blue-400 font-mono text-sm opacity-60">0{index + 1}.</span>
                     {step.title}
                   </h3>
                   <p className="text-slate-400 text-sm mt-1 mb-3">{step.description}</p>
                   
-                  <CommandBlock command={step.command} label={step.id === 'bot_script' ? 'BASH' : 'BASH'} />
+                  <CommandBlock command={step.command} />
                   
                   {step.explanation && (
                     <div className="mt-2 text-xs text-slate-500 bg-slate-800/50 p-3 rounded border border-slate-700/50 italic">
@@ -214,64 +214,16 @@ const App: React.FC = () => {
                   )}
                 </div>
               ))}
-            </div>
+             </div>
            </div>
         )}
 
         {currentTab === 'troubleshoot' && (
-          <div className="animate-fade-in max-w-2xl mx-auto">
-            <div className="mb-6 text-center">
-              <h2 className="text-2xl font-bold text-white mb-2">AI 专家助手</h2>
-              <p className="text-slate-400 text-sm">
-                由 Gemini 3 驱动。询问关于 "权限不足"、"端口占用"、"WiFi 无法扫描" 等问题。
-              </p>
-            </div>
+          <div className="animate-fade-in">
             <GeminiAssistant />
-            
-            <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <button 
-                className="p-4 bg-slate-800 rounded-lg border border-slate-700 hover:border-slate-500 text-left transition-all"
-                onClick={() => {
-                   const input = document.querySelector('input[type="text"]') as HTMLInputElement;
-                   if(input) {
-                     input.value = "如何让 Alist 在后台运行？";
-                     // Trigger change event if needed by React state, but simple set works for this demo
-                     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-                     nativeInputValueSetter?.call(input, "如何让 Alist 在后台运行？");
-                     input.dispatchEvent(new Event('input', { bubbles: true }));
-                     input.focus();
-                   }
-                }}
-              >
-                <QuestionMarkCircleIcon className="w-5 h-5 text-terminal-accent mb-2" />
-                <span className="text-sm font-semibold text-slate-200">后台运行?</span>
-                <p className="text-xs text-slate-500 mt-1">了解 nohup 或 termux-services</p>
-              </button>
-               <button 
-                className="p-4 bg-slate-800 rounded-lg border border-slate-700 hover:border-slate-500 text-left transition-all"
-                onClick={() => {
-                   const input = document.querySelector('input[type="text"]') as HTMLInputElement;
-                   if(input) {
-                     input.value = "如何从电脑访问手机的 Alist？";
-                     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-                     nativeInputValueSetter?.call(input, "如何从电脑访问手机的 Alist？");
-                     input.dispatchEvent(new Event('input', { bubbles: true }));
-                     input.focus();
-                   }
-                }}
-              >
-                <QuestionMarkCircleIcon className="w-5 h-5 text-terminal-accent mb-2" />
-                <span className="text-sm font-semibold text-slate-200">电脑访问?</span>
-                <p className="text-xs text-slate-500 mt-1">查询局域网 IP 地址</p>
-              </button>
-            </div>
           </div>
         )}
       </main>
-
-      <footer className="border-t border-slate-800 mt-12 py-8 text-center text-slate-500 text-sm">
-        <p>Built with React + Gemini API for the Termux Community.</p>
-      </footer>
     </div>
   );
 };

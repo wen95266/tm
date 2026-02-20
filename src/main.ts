@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as readline from 'readline';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -6,7 +7,7 @@ import { generateHelpResponse } from './services/geminiService';
 import { InstallMethod } from './types';
 
 // --- 1. Load .env manually ---
-const envPath = path.resolve((process as any).cwd(), '.env');
+const envPath = path.resolve(process.cwd(), '.env');
 if (fs.existsSync(envPath)) {
   const envConfig = fs.readFileSync(envPath, 'utf-8');
   envConfig.split('\n').forEach(line => {
@@ -57,7 +58,7 @@ const printStep = (step: any, index: number) => {
 
 const pressAnyKey = () => {
   return new Promise<void>(resolve => {
-    const rl = readline.createInterface({ input: (process as any).stdin, output: (process as any).stdout });
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     rl.question(`${c.bright}按回车键返回菜单...${c.reset}`, () => {
       rl.close();
       resolve();
@@ -77,7 +78,7 @@ const startGeminiChat = async () => {
   printHeader("AI 故障排查专家 (Gemini 3)");
   console.log(`${c.yellow}输入你的问题 (例如: "启动报错 permission denied")，输入 'exit' 退出。${c.reset}\n`);
 
-  const rl = readline.createInterface({ input: (process as any).stdin, output: (process as any).stdout });
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
   const ask = () => {
     rl.question(`${c.green}你: ${c.reset}`, async (input) => {
@@ -114,7 +115,7 @@ const main = async () => {
     console.log('');
 
     const choice = await new Promise<string>(resolve => {
-      const rl = readline.createInterface({ input: (process as any).stdin, output: (process as any).stdout });
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
       rl.question(`${c.cyan}请选择功能 [0-5]: ${c.reset}`, (answer) => {
         rl.close();
         resolve(answer.trim());
@@ -139,7 +140,8 @@ const main = async () => {
         break;
       case '0':
         console.log("再见！");
-        (process as any).exit(0);
+        process.exit(0);
+        break;
       default:
         console.log(`${c.red}无效的选择，请重试。${c.reset}`);
         await new Promise(r => setTimeout(r, 1000));

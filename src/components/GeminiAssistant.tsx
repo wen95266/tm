@@ -53,8 +53,10 @@ export const GeminiAssistant: React.FC = () => {
             >
               <ReactMarkdown 
                 components={{
-                  code: ({node, ...props}) => <code className="bg-black/30 rounded px-1 py-0.5 text-xs font-mono" {...props} />,
-                  pre: ({node, ...props}) => <pre className="bg-black/30 rounded p-2 my-2 overflow-x-auto" {...props} />
+                  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                  code: ({node: _node, ...props}) => <code className="bg-black/30 rounded px-1 py-0.5 text-xs font-mono" {...props} />,
+                  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                  pre: ({node: _node, ...props}) => <pre className="bg-black/30 rounded p-2 my-2 overflow-x-auto" {...props} />
                 }}
               >
                 {msg.text}
