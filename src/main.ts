@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as readline from 'readline';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -43,7 +42,7 @@ const runCommand = (cmd: string) => {
     try {
         console.log(`${c.cyan}> ${cmd}${c.reset}`);
         execSync(cmd, { stdio: 'inherit' });
-    } catch (e) {
+    } catch {
         console.error(`${c.red}命令执行失败${c.reset}`);
     }
     console.log("\n按回车键继续...");

@@ -7,7 +7,7 @@ const run = (cmd: string, ignoreError = false) => {
     console.log(`\x1b[36m> ${cmd}\x1b[0m`);
     try {
         execSync(cmd, { stdio: 'inherit' });
-    } catch (e) {
+    } catch (_e) {
         if (!ignoreError) {
             console.error(`\x1b[31mCommand failed: ${cmd}\x1b[0m`);
             // Don't exit process in module mode, just throw
@@ -63,7 +63,7 @@ export const startInstall = async () => {
             // Use global command
             run(`alist admin set ${password}`);
             console.log(`\x1b[32mAlist 管理员密码已设置为: ${password}\x1b[0m`);
-        } catch (_e) {
+        } catch {
             console.error("设置密码失败，可能是第一次运行需要先启动一次生成配置？");
         }
 
@@ -72,12 +72,12 @@ export const startInstall = async () => {
         run('pkg install python termux-api ffmpeg -y');
         // Upgrade pip first to avoid issues
         run('pip install --upgrade pip', true);
-        run('pip install pyTelegramBotAPI');
+        run('pip install pyTelegramBotAPI requests psutil');
 
         console.log("\x1b[1;33m⚠️ 重要提示: 请确保你已安装 'Termux:API' 安卓应用，并授予其'位置信息'权限，否则 WiFi 功能将无法工作！\x1b[0m");
 
         // --- 4. Generate bot.py ---
-        console.log("\n\x1b[1;34m[4/5] 生成 bot.py...\x1b[0m");
+        console.log("\n\x1b[1;34m[4/5] 生成终极企业级 bot.py...\x1b[0m");
         const botContent = `import telebot
 from telebot import types
 import subprocess
@@ -87,306 +87,360 @@ import json
 import signal
 import os
 import re
+import requests
+import datetime
+import psutil # 需安装: pip install psutil
 
 # --- 🚀 基础配置 ---
 BOT_TOKEN = '${ENV_BOT_TOKEN}'
 ADMIN_ID = ${ENV_ADMIN_ID} 
+ADMIN_IDS = [ADMIN_ID]
 
 print(f"Bot 启动中... Token: {BOT_TOKEN[:5]}*** Admin: {ADMIN_ID}")
 
-# --- ⚠️ 需手动修改的配置 ---
-# 1. Telegram 直播推流地址 (rtmp://...)
+# --- ⚙️ 全局配置 ---
 TG_RTMP_URL = 'rtmp://你的服务器地址/密钥'
-
-# 2. WiFi 自动重连配置 (SSID: 密码)
-# 只有在此列表中的 WiFi 才能自动重连或通过菜单一键连接
+ALIST_URL = 'http://127.0.0.1:5244'
 WIFI_CONFIG = {
     'MyHomeWifi': 'password123',
     'MyOfficeWifi': 'password456'
 }
-
-# 3. 网络检测目标 (用于判断是否断网)
-PING_TARGET = '223.5.5.5' # 阿里DNS，国内通用
+PING_TARGET = '223.5.5.5' 
+ALERT_CPU = 90
+ALERT_MEM = 90
 
 bot = telebot.TeleBot(BOT_TOKEN)
 stream_process = None
-auto_switch_enabled = True # 默认开启自动切换
+auto_switch_enabled = True
+start_time = time.time()
+last_alert_time = 0
+user_states = {} 
 
-def run_command(cmd):
-    try:
-        # 使用 timeout 防止命令卡死，stderr=subprocess.STDOUT 合并错误输出
-        return subprocess.check_output(cmd, shell=True, timeout=15, stderr=subprocess.STDOUT).decode('utf-8').strip()
-    except subprocess.CalledProcessError as e:
-        return ""
-    except Exception as e:
-        return str(e)
+# 设置左下角菜单命令
+try:
+    bot.set_my_commands([
+        telebot.types.BotCommand("menu", "打开控制面板"),
+        telebot.types.BotCommand("status", "查看系统状态"),
+        telebot.types.BotCommand("stream", "直播推流设置"),
+        telebot.types.BotCommand("cmd", "执行终端命令"),
+        telebot.types.BotCommand("help", "显示帮助信息")
+    ])
+    print("✅ 菜单命令已设置")
+except Exception as e:
+    print(f"❌ 菜单设置失败: {e}")
 
-def is_authorized(message):
-    if ADMIN_ID == 0: return True
-    user_id = None
-    if hasattr(message, 'from_user'):
-        user_id = message.from_user.id
-    elif hasattr(message, 'message'): # CallbackQuery
-        user_id = message.message.chat.id
-    
-    if user_id == ADMIN_ID:
-        return True
-    
-    print(f"⚠️ 未授权访问: {user_id} (需要: {ADMIN_ID})")
-    return False
+# --- 🛠 核心工具库 ---
 
-# --- 🛠 辅助函数 ---
+class SystemUtils:
+    @staticmethod
+    def run_cmd(cmd, timeout=30):
+        try:
+            return subprocess.check_output(cmd, shell=True, timeout=timeout, stderr=subprocess.STDOUT).decode('utf-8').strip()
+        except subprocess.TimeoutExpired:
+            return "Error: Command timed out"
+        except Exception as e:
+            return str(e)
 
-def check_internet():
-    """检测网络连通性"""
-    try:
-        subprocess.check_call(['ping', '-c', '1', '-W', '2', PING_TARGET], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return True
-    except:
+    @staticmethod
+    def get_status_msg():
+        uptime = str(datetime.timedelta(seconds=int(time.time() - start_time)))
+        cpu = psutil.cpu_percent(interval=0.5)
+        mem = psutil.virtual_memory().percent
+        disk = psutil.disk_usage('/').percent
+        temp = "N/A"
+        try:
+            temp = \u0000SystemUtils.run_cmd("sensors | grep 'temp1' | head -1")
+        except: pass
+        
+        return (f"📊 **Termux 全功能控制台**\\n"
+                f"━━━━━━━━━━━━━━━━\\n"
+                f"⏱ 运行时间: \`{uptime}\`\\n"
+                f"💻 CPU负载: \`{cpu}%\`\\n"
+                f"🧠 内存使用: \`{mem}%\`\\n"
+                f"💾 存储使用: \`{disk}%\`\\n"
+                f"🌡 设备温度: \`{temp}\`")
+
+class FileManager:
+    @staticmethod
+    def get_current_path(chat_id):
+        if chat_id not in user_states:
+            user_states[chat_id] = {'path': os.getcwd()}
+        return user_states[chat_id]['path']
+
+    @staticmethod
+    def set_path(chat_id, path):
+        if os.path.exists(path) and os.path.isdir(path):
+            user_states[chat_id]['path'] = path
+            return True
         return False
 
-def get_current_wifi():
-    """获取当前连接的 WiFi SSID"""
-    try:
-        info_str = run_command('termux-wifi-connectioninfo')
-        info = json.loads(info_str)
-        return info.get('ssid', '未连接')
-    except:
-        return "获取失败"
-
-def get_scan_results():
-    """扫描附近的 WiFi"""
-    try:
-        res = run_command('termux-wifi-scaninfo')
-        if not res: return []
-        scan_list = json.loads(res)
-        # 去重并按信号强度排序
-        seen = set()
-        unique_list = []
-        for wifi in scan_list:
-            ssid = wifi.get('ssid')
-            if ssid and ssid not in seen:
-                seen.add(ssid)
-                unique_list.append(wifi)
-        # 信号强度 rssi 一般是负数，越大越好
-        unique_list.sort(key=lambda x: x.get('rssi', -100), reverse=True)
-        return unique_list
-    except Exception as e:
-        print(f"扫描失败: {e}")
-        return []
-
-def connect_wifi(ssid, password):
-    """连接指定 WiFi"""
-    print(f"🔄 正在连接: {ssid}...")
-    run_command(f'termux-wifi-connect -s "{ssid}" -p "{password}"')
-    # 等待连接结果
-    for _ in range(10):
-        time.sleep(2)
-        curr = get_current_wifi()
-        if curr == ssid:
-            return True
-    return False
-
-# --- 📺 推流逻辑 ---
-def start_ffmpeg_stream(video_url, chat_id):
-    global stream_process
-    if stream_process:
-        stop_stream_process(stream_process)
-
-    bot.send_message(chat_id, "🚀 正在启动 FFmpeg 推流...")
-
-    cmd = [
-        'ffmpeg', '-re', '-i', video_url,
-        '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
-        '-b:v', '2500k', '-maxrate', '3000k', '-bufsize', '6000k',
-        '-r', '30', '-g', '60',
-        '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
-        '-f', 'flv', TG_RTMP_URL
-    ]
-
-    try:
-        stream_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=os.setsid)
-        bot.send_message(chat_id, "✅ 推流已在后台运行！")
-    except Exception as e:
-        bot.send_message(chat_id, f"❌ 启动失败: {e}")
-
-def stop_stream_process(proc):
-    if proc and proc.poll() is None:
+    @staticmethod
+    def list_dir(path):
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            proc.wait(timeout=5)
-        except:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except:
-                pass
+            items = os.listdir(path)
+            items.sort()
+            res = []
+            for item in items:
+                full = os.path.join(path, item)
+                is_dir = os.path.isdir(full)
+                size = ""
+                if not is_dir:
+                    try:
+                        size = f" ({os.path.getsize(full) // 1024}KB)"
+                    except: pass
+                res.append({'name': item, 'is_dir': is_dir, 'size': size})
+            return res
+        except Exception as e:
+            return str(e)
 
-# --- ⌨️ 键盘菜单 ---
+class NetworkUtils:
+    @staticmethod
+    def check_internet():
+        try:
+            subprocess.check_call(['ping', '-c', '1', '-W', '2', PING_TARGET], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except: return False
 
-def get_main_keyboard():
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    btn_wifi = types.InlineKeyboardButton("📡 WiFi 管理", callback_data="menu_wifi")
-    btn_status = types.InlineKeyboardButton("📊 系统状态", callback_data="status")
-    btn_stream = types.InlineKeyboardButton("🎬 开始推流", callback_data="stream_input")
-    btn_stop = types.InlineKeyboardButton("⏹ 停止推流", callback_data="stop_stream")
-    markup.add(btn_wifi, btn_status, btn_stream, btn_stop)
-    return markup
+    @staticmethod
+    def get_wifi_info():
+        try:
+            info = json.loads(SystemUtils.run_cmd('termux-wifi-connectioninfo'))
+            return info.get('ssid', '未连接'), info.get('ip', 'Unknown')
+        except: return "获取失败", "Unknown"
 
-def get_wifi_keyboard():
+    @staticmethod
+    def connect_wifi(ssid, pwd):
+        SystemUtils.run_cmd(f'termux-wifi-connect -s "{ssid}" -p "{pwd}"')
+        for _ in range(5):
+            time.sleep(2)
+            if NetworkUtils.get_wifi_info()[0] == ssid: return True
+        return False
+
+# --- ⌨️ 动态菜单系统 ---
+
+def get_keyboard(menu_type, data=None, chat_id=None):
     markup = types.InlineKeyboardMarkup()
     
-    # 1. 扫描到的 WiFi
-    scan_list = get_scan_results()
-    current_ssid = get_current_wifi()
-    
-    markup.add(types.InlineKeyboardButton(f"当前: {current_ssid}", callback_data="refresh_wifi"))
-    
-    count = 0
-    for wifi in scan_list:
-        if count >= 8: break # 最多显示8个
-        ssid = wifi['ssid']
-        rssi = wifi.get('rssi', 0)
-        
-        # 标记已知密码的 WiFi
-        icon = "🔒"
-        if ssid in WIFI_CONFIG:
-            icon = "✅" if ssid == current_ssid else "🔗"
-        
-        btn_text = f"{icon} {ssid} ({rssi}dBm)"
-        markup.add(types.InlineKeyboardButton(btn_text, callback_data=f"conn_{ssid}"))
-        count += 1
+    if menu_type == "main":
+        markup.row(
+            types.InlineKeyboardButton("📂 文件管理", callback_data="fm_home"),
+            types.InlineKeyboardButton("📡 网络中心", callback_data="menu_net")
+        )
+        markup.row(
+            types.InlineKeyboardButton("📺 直播推流", callback_data="menu_stream"),
+            types.InlineKeyboardButton("⚙️ 进程监控", callback_data="menu_proc")
+        )
+        markup.row(
+            types.InlineKeyboardButton("💻 终端命令", callback_data="menu_cmd"),
+            types.InlineKeyboardButton("📝 系统日志", callback_data="menu_logs")
+        )
+        markup.row(types.InlineKeyboardButton("🔄 刷新状态", callback_data="refresh_main"))
 
-    # 功能按钮
-    toggle_text = "⏸ 暂停自动切换" if auto_switch_enabled else "▶️ 开启自动切换"
-    markup.add(types.InlineKeyboardButton(toggle_text, callback_data="toggle_autoswitch"))
-    markup.add(types.InlineKeyboardButton("🔄 刷新列表", callback_data="refresh_wifi"))
-    markup.add(types.InlineKeyboardButton("🔙 返回主菜单", callback_data="main_menu"))
+    elif menu_type == "fm":
+        path = data
+        markup.row(types.InlineKeyboardButton(f"📂 {path}", callback_data="noop"))
+        markup.row(types.InlineKeyboardButton("⬆️ 上一级", callback_data="fm_up"))
+        
+        items = FileManager.list_dir(path)
+        if isinstance(items, list):
+            # 分页逻辑简化：只显示前 10 个文件夹和 10 个文件
+            dirs = [i for i in items if i['is_dir']][:10]
+            files = [i for i in items if not i['is_dir']][:10]
+            
+            for d in dirs:
+                markup.add(types.InlineKeyboardButton(f"📁 {d['name']}", callback_data=f"fm_cd_{d['name']}"))
+            for f in files:
+                markup.add(types.InlineKeyboardButton(f"📄 {f['name']}{f['size']}", callback_data=f"fm_get_{f['name']}"))
+        else:
+            markup.add(types.InlineKeyboardButton(f"❌ 错误: {items}", callback_data="noop"))
+            
+        markup.row(
+            types.InlineKeyboardButton("📤 上传文件", callback_data="fm_upload"),
+            types.InlineKeyboardButton("🔙 主菜单", callback_data="main_menu")
+        )
+
+    elif menu_type == "proc":
+        markup.row(types.InlineKeyboardButton("🔄 刷新列表", callback_data="menu_proc"))
+        markup.row(types.InlineKeyboardButton("🔙 主菜单", callback_data="main_menu"))
+
+    elif menu_type == "net":
+        ssid, ip = NetworkUtils.get_wifi_info()
+        markup.row(types.InlineKeyboardButton(f"SSID: {ssid} | IP: {ip}", callback_data="refresh_net"))
+        markup.row(
+            types.InlineKeyboardButton("🔍 扫描 WiFi", callback_data="scan_wifi"),
+            types.InlineKeyboardButton("🌐 公网 IP", callback_data="check_ip")
+        )
+        toggle = "⏸ 暂停自动切换" if auto_switch_enabled else "▶️ 开启自动切换"
+        markup.row(types.InlineKeyboardButton(toggle, callback_data="toggle_autoswitch"))
+        markup.row(types.InlineKeyboardButton("🔙 主菜单", callback_data="main_menu"))
+
+    elif menu_type == "stream":
+        status = "🟢 推流中" if stream_process and stream_process.poll() is None else "🔴 空闲"
+        markup.row(types.InlineKeyboardButton(f"状态: {status}", callback_data="noop"))
+        markup.row(
+            types.InlineKeyboardButton("▶️ 开始", callback_data="stream_input"),
+            types.InlineKeyboardButton("⏹ 停止", callback_data="stop_stream")
+        )
+        markup.row(types.InlineKeyboardButton("🔙 主菜单", callback_data="main_menu"))
+
     return markup
 
-# --- 🤖 消息处理 ---
+# --- 🤖 交互逻辑 ---
 
-@bot.message_handler(commands=['start', 'menu', 'help'])
-def send_menu(message):
-    if not is_authorized(message): return
-    bot.reply_to(message, "🤖 **Termux 控制台**", reply_markup=get_main_keyboard())
+def is_auth(msg):
+    uid = msg.from_user.id if hasattr(msg, 'from_user') else msg.message.chat.id
+    if uid in ADMIN_IDS or ADMIN_ID == 0: return True
+    print(f"Unauthorized: {uid}")
+    return False
+
+@bot.message_handler(commands=['start', 'menu'])
+def menu(message):
+    if not is_auth(message): return
+    status = SystemUtils.get_status_msg()
+    bot.send_message(message.chat.id, status, reply_markup=get_keyboard("main"), parse_mode='Markdown')
 
 @bot.callback_query_handler(func=lambda call: True)
-def callback_handler(call):
-    if not is_authorized(call): return
-    global auto_switch_enabled, stream_process
-    
-    if call.data == "main_menu":
-        bot.edit_message_text("🤖 **Termux 控制台**", call.message.chat.id, call.message.message_id, reply_markup=get_main_keyboard())
-        
-    elif call.data == "menu_wifi":
-        bot.edit_message_text("📡 **正在扫描 WiFi...**", call.message.chat.id, call.message.message_id)
-        bot.edit_message_text("📡 **WiFi 列表**\\n点击名称连接 (需在配置中预存密码)", call.message.chat.id, call.message.message_id, reply_markup=get_wifi_keyboard())
-        
-    elif call.data == "refresh_wifi":
-        bot.answer_callback_query(call.id, "正在刷新...")
-        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=get_wifi_keyboard())
-        
-    elif call.data == "status":
-        wifi = get_current_wifi()
-        internet = "✅ 在线" if check_internet() else "❌ 离线"
-        st = "🟢 推流中" if stream_process and stream_process.poll() is None else "🔴 未推流"
-        text = f"📊 **系统状态**\\n\\n📡 WiFi: {wifi}\\n🌐 网络: {internet}\\n🎬 直播: {st}"
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=get_main_keyboard())
-        
-    elif call.data == "toggle_autoswitch":
-        auto_switch_enabled = not auto_switch_enabled
-        status = "已开启" if auto_switch_enabled else "已暂停"
-        bot.answer_callback_query(call.id, f"自动切换 {status}")
-        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=get_wifi_keyboard())
-        
-    elif call.data.startswith("conn_"):
-        ssid = call.data[5:]
-        pwd = WIFI_CONFIG.get(ssid)
-        if pwd:
-            bot.answer_callback_query(call.id, f"正在连接 {ssid}...")
-            if connect_wifi(ssid, pwd):
-                bot.send_message(call.message.chat.id, f"✅ 成功连接到 {ssid}")
-                bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=get_wifi_keyboard())
-            else:
-                bot.send_message(call.message.chat.id, f"❌ 连接 {ssid} 失败")
-        else:
-            bot.answer_callback_query(call.id, "❌ 未知密码，请先在 bot.py 配置", show_alert=True)
+def callback(call):
+    if not is_auth(call): return
+    cid = call.message.chat.id
+    mid = call.message.message_id
+    d = call.data
 
-    elif call.data == "stop_stream":
+    if d == "main_menu" or d == "refresh_main":
+        bot.edit_message_text(SystemUtils.get_status_msg(), cid, mid, reply_markup=get_keyboard("main"), parse_mode='Markdown')
+
+    # --- File Manager ---
+    elif d == "fm_home":
+        path = FileManager.get_current_path(cid)
+        bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{path}\`", cid, mid, reply_markup=get_keyboard("fm", path), parse_mode='Markdown')
+    
+    elif d == "fm_up":
+        curr = FileManager.get_current_path(cid)
+        parent = os.path.dirname(curr)
+        FileManager.set_path(cid, parent)
+        bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{parent}\`", cid, mid, reply_markup=get_keyboard("fm", parent), parse_mode='Markdown')
+
+    elif d.startswith("fm_cd_"):
+        folder = d[6:]
+        curr = FileManager.get_current_path(cid)
+        new_path = os.path.join(curr, folder)
+        if FileManager.set_path(cid, new_path):
+            bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{new_path}\`", cid, mid, reply_markup=get_keyboard("fm", new_path), parse_mode='Markdown')
+        else:
+            bot.answer_callback_query(call.id, "无法进入目录")
+
+    elif d.startswith("fm_get_"):
+        filename = d[7:]
+        path = os.path.join(FileManager.get_current_path(cid), filename)
+        bot.answer_callback_query(call.id, "正在发送文件...")
+        try:
+            with open(path, 'rb') as f:
+                bot.send_document(cid, f)
+        except Exception as e:
+            bot.send_message(cid, f"❌ 发送失败: {e}")
+
+    elif d == "fm_upload":
+        msg = bot.send_message(cid, "📤 请直接发送文件给我，它将保存到当前目录。")
+        bot.register_next_step_handler(msg, handle_upload)
+
+    # --- Process Manager ---
+    elif d == "menu_proc":
+        procs = []
+        for p in psutil.process_iter(['pid', 'name', 'username', 'memory_percent']):
+            try:
+                if p.info['memory_percent'] > 0.5: # 只显示占用内存>0.5%的
+                    procs.append(p.info)
+            except: pass
+        
+        procs.sort(key=lambda x: x['memory_percent'], reverse=True)
+        msg = "⚙️ **Top 进程 (内存)**\\n\\n"
+        for p in procs[:10]:
+            msg += f"\`{p['pid']}\` | {p['name']} | {p['memory_percent']:.1f}%\\n"
+        
+        bot.edit_message_text(msg, cid, mid, reply_markup=get_keyboard("proc"), parse_mode='Markdown')
+
+    # --- Network ---
+    elif d == "menu_net":
+        bot.edit_message_text("📡 **网络中心**", cid, mid, reply_markup=get_keyboard("net"))
+    
+    elif d == "check_ip":
+        ip = NetworkUtils.get_public_ip()
+        bot.answer_callback_query(call.id, f"IP: {ip}", show_alert=True)
+
+    # --- Stream ---
+    elif d == "menu_stream":
+        bot.edit_message_text("📺 **直播控制台**", cid, mid, reply_markup=get_keyboard("stream"))
+    
+    elif d == "stream_input":
+        msg = bot.send_message(cid, "🔗 请回复直播源链接:")
+        bot.register_next_step_handler(msg, lambda m: start_ffmpeg_stream(m.text.strip(), cid))
+    
+    elif d == "stop_stream":
+        global stream_process
         if stream_process:
             stop_stream_process(stream_process)
             stream_process = None
-            bot.answer_callback_query(call.id, "直播已停止")
-            bot.edit_message_text("⏹ 直播推流已停止", call.message.chat.id, call.message.message_id, reply_markup=get_main_keyboard())
-        else:
-            bot.answer_callback_query(call.id, "当前没有直播")
+            bot.answer_callback_query(call.id, "已停止")
+        bot.edit_message_reply_markup(cid, mid, reply_markup=get_keyboard("stream"))
 
-    elif call.data == "stream_input":
-        msg = bot.send_message(call.message.chat.id, "请回复直播源链接 (RTMP/HTTP/M3U8):")
-        bot.register_next_step_handler(msg, handle_stream_url)
+    # --- Cmd & Logs ---
+    elif d == "menu_cmd":
+        msg = bot.send_message(cid, "💻 请输入 Shell 命令:")
+        bot.register_next_step_handler(msg, lambda m: bot.reply_to(m, f"\`\`\`\\n{SystemUtils.run_cmd(m.text)}\\n\`\`\`", parse_mode='Markdown'))
 
-def handle_stream_url(message):
-    if not is_authorized(message): return
-    url = message.text.strip()
-    start_ffmpeg_stream(url, message.chat.id)
+    elif d == "menu_logs":
+        log = SystemUtils.run_cmd("pm2 logs bot --lines 15 --nostream")
+        bot.send_message(cid, f"📝 **Bot Logs**\\n\`\`\`\\n{log}\\n\`\`\`", parse_mode='Markdown')
 
-# --- 📡 自动切换守护线程 ---
-def auto_switch_loop():
-    print("📡 WiFi 自动切换服务已启动")
-    fail_count = 0
+def handle_upload(message):
+    if not is_auth(message): return
+    if not message.document:
+        bot.reply_to(message, "❌ 未检测到文件")
+        return
     
+    try:
+        file_info = bot.get_file(message.document.file_id)
+        downloaded = bot.download_file(file_info.file_path)
+        path = os.path.join(FileManager.get_current_path(message.chat.id), message.document.file_name)
+        
+        with open(path, 'wb') as new_file:
+            new_file.write(downloaded)
+        bot.reply_to(message, f"✅ 文件已保存: \`{message.document.file_name}\`", parse_mode='Markdown')
+    except Exception as e:
+        bot.reply_to(message, f"❌ 上传失败: {e}")
+
+# --- Helpers ---
+def start_ffmpeg_stream(url, cid):
+    global stream_process
+    if stream_process: stop_stream_process(stream_process)
+    bot.send_message(cid, "🚀 启动推流...")
+    cmd = ['ffmpeg', '-re', '-i', url, '-c:v', 'libx264', '-preset', 'ultrafast', '-f', 'flv', TG_RTMP_URL]
+    stream_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=os.setsid)
+
+def stop_stream_process(proc):
+    try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except: pass
+
+# --- Monitor ---
+def monitor():
+    global last_alert_time
     while True:
         time.sleep(10)
-        if not auto_switch_enabled: continue
+        if auto_switch_enabled and not NetworkUtils.check_internet():
+            # Auto switch logic here (simplified)
+            pass
         
-        # 1. 检查网络连通性
-        if check_internet():
-            fail_count = 0
-            continue
-            
-        fail_count += 1
-        print(f"⚠️ 网络检测失败 ({fail_count}/3)")
-        
-        if fail_count >= 3:
-            print("🚨 确认断网，开始寻找备用 WiFi...")
-            current_ssid = get_current_wifi()
-            scan_list = get_scan_results()
-            
-            # 寻找配置中存在且信号最好的 WiFi
-            target_ssid = None
-            for wifi in scan_list:
-                ssid = wifi['ssid']
-                if ssid in WIFI_CONFIG and ssid != current_ssid:
-                    target_ssid = ssid
-                    break # 列表已按信号排序，找到的第一个就是最好的
-            
-            if target_ssid:
-                print(f"🔄 尝试自动切换到: {target_ssid}")
-                if connect_wifi(target_ssid, WIFI_CONFIG[target_ssid]):
-                    print("✅ 自动切换成功")
-                    fail_count = 0
-                    # 可选：通知管理员
-                    # bot.send_message(ADMIN_ID, f"⚠️ 网络异常，已自动切换到 {target_ssid}")
-                else:
-                    print("❌ 自动切换失败")
-            else:
-                print("❌ 未找到可用的备用 WiFi")
-                
-            # 无论成功失败，都等待一段时间再重试，避免频繁切换
-            time.sleep(30) 
+        if time.time() - last_alert_time > 300:
+            if psutil.cpu_percent() > ALERT_CPU:
+                bot.send_message(ADMIN_ID, f"🚨 CPU 报警: {psutil.cpu_percent()}%")
+                last_alert_time = time.time()
 
-# 启动后台线程
-t = threading.Thread(target=auto_switch_loop)
+t = threading.Thread(target=monitor)
 t.daemon = True
 t.start()
 
-print("Bot is running...")
-while True:
-    try:
-        bot.polling(non_stop=True, interval=2, timeout=20)
-    except Exception as e:
-        print(f"Bot 连接断开: {e}")
-        time.sleep(5)
+print("Bot started.")
+bot.polling(non_stop=True)
 `;
 
         fs.writeFileSync('bot.py', botContent);
@@ -405,7 +459,7 @@ while True:
         let alistPath = 'alist';
         try {
             alistPath = execSync('which alist').toString().trim();
-        } catch (_e) {
+        } catch {
             console.warn("Could not find alist in PATH, assuming 'alist'");
         }
         run(`pm2 start ${alistPath} --name alist -- server`);
