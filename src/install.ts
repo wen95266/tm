@@ -90,6 +90,7 @@ import re
 import requests
 import datetime
 import psutil # 需安装: pip install psutil
+import shutil
 
 # --- 🚀 基础配置 ---
 BOT_TOKEN = '${ENV_BOT_TOKEN}'
@@ -101,6 +102,7 @@ print(f"Bot 启动中... Token: {BOT_TOKEN[:5]}*** Admin: {ADMIN_ID}")
 # --- ⚙️ 全局配置 ---
 TG_RTMP_URL = 'rtmp://你的服务器地址/密钥'
 ALIST_URL = 'http://127.0.0.1:5244'
+ALIST_TOKEN = '' # 填入 Token 以管理存储
 WIFI_CONFIG = {
     'MyHomeWifi': 'password123',
     'MyOfficeWifi': 'password456'
@@ -149,7 +151,7 @@ class SystemUtils:
         disk = psutil.disk_usage('/').percent
         temp = "N/A"
         try:
-            temp = \u0000SystemUtils.run_cmd("sensors | grep 'temp1' | head -1")
+            temp = SystemUtils.run_cmd("sensors | grep 'temp1' | head -1")
         except: pass
         
         return (f"📊 **Termux 全功能控制台**\\n"
@@ -193,6 +195,18 @@ class FileManager:
         except Exception as e:
             return str(e)
 
+    @staticmethod
+    def delete_item(chat_id, filename):
+        path = os.path.join(FileManager.get_current_path(chat_id), filename)
+        try:
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+            return True, "已删除"
+        except Exception as e:
+            return False, str(e)
+
 class NetworkUtils:
     @staticmethod
     def check_internet():
@@ -216,6 +230,35 @@ class NetworkUtils:
             if NetworkUtils.get_wifi_info()[0] == ssid: return True
         return False
 
+    @staticmethod
+    def get_public_ip():
+        try: return requests.get('http://ifconfig.me/ip', timeout=5).text.strip()
+        except: return "获取失败"
+
+class AlistUtils:
+    @staticmethod
+    def get_version():
+        try:
+            res = requests.get(f"{ALIST_URL}/api/public/settings", timeout=2).json()
+            return res['data']['version']
+        except: return "离线"
+
+    @staticmethod
+    def get_storage_list():
+        if not ALIST_TOKEN: return "⚠️ 未配置 ALIST_TOKEN，无法查看存储详情"
+        try:
+            headers = {'Authorization': ALIST_TOKEN}
+            res = requests.get(f"{ALIST_URL}/api/admin/storage/list", headers=headers, timeout=5).json()
+            if res['code'] == 200:
+                msg = "💾 **Alist 存储状态**\\n"
+                for item in res['data']['content']:
+                    status = "🟢" if item['status'] == 'work' else "🔴"
+                    msg += f"{status} {item['mount_path']}\\n"
+                return msg
+            return f"❌ API 错误: {res.get('message')}"
+        except Exception as e:
+            return f"❌ 请求失败: {e}"
+
 # --- ⌨️ 动态菜单系统 ---
 
 def get_keyboard(menu_type, data=None, chat_id=None):
@@ -232,9 +275,12 @@ def get_keyboard(menu_type, data=None, chat_id=None):
         )
         markup.row(
             types.InlineKeyboardButton("💻 终端命令", callback_data="menu_cmd"),
-            types.InlineKeyboardButton("📝 系统日志", callback_data="menu_logs")
+            types.InlineKeyboardButton("📂 Alist", callback_data="menu_alist")
         )
-        markup.row(types.InlineKeyboardButton("🔄 刷新状态", callback_data="refresh_main"))
+        markup.row(
+            types.InlineKeyboardButton("📝 系统日志", callback_data="menu_logs"),
+            types.InlineKeyboardButton("🔄 刷新状态", callback_data="refresh_main")
+        )
 
     elif menu_type == "fm":
         path = data
@@ -243,20 +289,30 @@ def get_keyboard(menu_type, data=None, chat_id=None):
         
         items = FileManager.list_dir(path)
         if isinstance(items, list):
-            # 分页逻辑简化：只显示前 10 个文件夹和 10 个文件
             dirs = [i for i in items if i['is_dir']][:10]
             files = [i for i in items if not i['is_dir']][:10]
-            
             for d in dirs:
                 markup.add(types.InlineKeyboardButton(f"📁 {d['name']}", callback_data=f"fm_cd_{d['name']}"))
             for f in files:
-                markup.add(types.InlineKeyboardButton(f"📄 {f['name']}{f['size']}", callback_data=f"fm_get_{f['name']}"))
+                markup.add(types.InlineKeyboardButton(f"📄 {f['name']}{f['size']}", callback_data=f"fm_opt_{f['name']}"))
         else:
             markup.add(types.InlineKeyboardButton(f"❌ 错误: {items}", callback_data="noop"))
             
         markup.row(
             types.InlineKeyboardButton("📤 上传文件", callback_data="fm_upload"),
             types.InlineKeyboardButton("🔙 主菜单", callback_data="main_menu")
+        )
+
+    elif menu_type == "fm_file_opt":
+        filename = data
+        markup.row(types.InlineKeyboardButton(f"📄 {filename}", callback_data="noop"))
+        markup.row(
+            types.InlineKeyboardButton("⬇️ 下载", callback_data=f"fm_dl_{filename}"),
+            types.InlineKeyboardButton("✏️ 重命名", callback_data=f"fm_ren_{filename}")
+        )
+        markup.row(
+            types.InlineKeyboardButton("🗑 删除", callback_data=f"fm_del_{filename}"),
+            types.InlineKeyboardButton("🔙 返回列表", callback_data="fm_back")
         )
 
     elif menu_type == "proc":
@@ -268,11 +324,22 @@ def get_keyboard(menu_type, data=None, chat_id=None):
         markup.row(types.InlineKeyboardButton(f"SSID: {ssid} | IP: {ip}", callback_data="refresh_net"))
         markup.row(
             types.InlineKeyboardButton("🔍 扫描 WiFi", callback_data="scan_wifi"),
-            types.InlineKeyboardButton("🌐 公网 IP", callback_data="check_ip")
+            types.InlineKeyboardButton("🚀 测速", callback_data="net_speed")
         )
-        toggle = "⏸ 暂停自动切换" if auto_switch_enabled else "▶️ 开启自动切换"
-        markup.row(types.InlineKeyboardButton(toggle, callback_data="toggle_autoswitch"))
-        markup.row(types.InlineKeyboardButton("🔙 主菜单", callback_data="main_menu"))
+        markup.row(
+            types.InlineKeyboardButton("🌐 公网 IP", callback_data="check_ip"),
+            types.InlineKeyboardButton("🔙 主菜单", callback_data="main_menu")
+        )
+
+    elif menu_type == "alist":
+        markup.row(
+            types.InlineKeyboardButton("💾 存储状态", callback_data="alist_storage"),
+            types.InlineKeyboardButton("🔗 查看地址", url=ALIST_URL)
+        )
+        markup.row(
+            types.InlineKeyboardButton("🔄 重启服务", callback_data="restart_alist"),
+            types.InlineKeyboardButton("🔙 主菜单", callback_data="main_menu")
+        )
 
     elif menu_type == "stream":
         status = "🟢 推流中" if stream_process and stream_process.poll() is None else "🔴 空闲"
@@ -299,6 +366,29 @@ def menu(message):
     status = SystemUtils.get_status_msg()
     bot.send_message(message.chat.id, status, reply_markup=get_keyboard("main"), parse_mode='Markdown')
 
+@bot.message_handler(commands=['status'])
+def status_handler(message):
+    if not is_auth(message): return
+    status = SystemUtils.get_status_msg()
+    bot.reply_to(message, status, parse_mode='Markdown')
+
+@bot.message_handler(commands=['stream'])
+def stream_handler(message):
+    if not is_auth(message): return
+    bot.send_message(message.chat.id, "📺 **直播控制台**", reply_markup=get_keyboard("stream"), parse_mode='Markdown')
+
+@bot.message_handler(commands=['cmd'])
+def cmd_handler(message):
+    if not is_auth(message): return
+    cmd = message.text.split(maxsplit=1)
+    if len(cmd) > 1:
+        bot.reply_to(message, f"⏳ 执行: {cmd[1]}...")
+        res = SystemUtils.run_cmd(cmd[1])
+        if len(res) > 3000: res = res[:3000] + "\\n...(截断)"
+        bot.reply_to(message, f"\`\`\`\\n{res or '无输出'}\\n\`\`\`", parse_mode='Markdown')
+    else:
+        bot.reply_to(message, "用法: /cmd <命令>")
+
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
     if not is_auth(call): return
@@ -314,11 +404,12 @@ def callback(call):
         path = FileManager.get_current_path(cid)
         bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{path}\`", cid, mid, reply_markup=get_keyboard("fm", path), parse_mode='Markdown')
     
-    elif d == "fm_up":
+    elif d == "fm_up" or d == "fm_back":
         curr = FileManager.get_current_path(cid)
-        parent = os.path.dirname(curr)
-        FileManager.set_path(cid, parent)
-        bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{parent}\`", cid, mid, reply_markup=get_keyboard("fm", parent), parse_mode='Markdown')
+        if d == "fm_up":
+            curr = os.path.dirname(curr)
+            FileManager.set_path(cid, curr)
+        bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{curr}\`", cid, mid, reply_markup=get_keyboard("fm", curr), parse_mode='Markdown')
 
     elif d.startswith("fm_cd_"):
         folder = d[6:]
@@ -329,15 +420,30 @@ def callback(call):
         else:
             bot.answer_callback_query(call.id, "无法进入目录")
 
-    elif d.startswith("fm_get_"):
+    elif d.startswith("fm_opt_"):
         filename = d[7:]
+        bot.edit_message_text(f"📄 **文件操作**: {filename}", cid, mid, reply_markup=get_keyboard("fm_file_opt", filename))
+
+    elif d.startswith("fm_dl_"):
+        filename = d[6:]
         path = os.path.join(FileManager.get_current_path(cid), filename)
-        bot.answer_callback_query(call.id, "正在发送文件...")
+        bot.answer_callback_query(call.id, "正在发送...")
         try:
-            with open(path, 'rb') as f:
-                bot.send_document(cid, f)
-        except Exception as e:
-            bot.send_message(cid, f"❌ 发送失败: {e}")
+            with open(path, 'rb') as f: bot.send_document(cid, f)
+        except Exception as e: bot.send_message(cid, f"❌ 失败: {e}")
+
+    elif d.startswith("fm_del_"):
+        filename = d[7:]
+        success, msg = FileManager.delete_item(cid, filename)
+        bot.answer_callback_query(call.id, msg, show_alert=True)
+        if success:
+            path = FileManager.get_current_path(cid)
+            bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{path}\`", cid, mid, reply_markup=get_keyboard("fm", path), parse_mode='Markdown')
+
+    elif d.startswith("fm_ren_"):
+        filename = d[7:]
+        msg = bot.send_message(cid, f"✏️ 请输入 \`{filename}\` 的新名称:", parse_mode='Markdown')
+        bot.register_next_step_handler(msg, lambda m: handle_rename(m, filename))
 
     elif d == "fm_upload":
         msg = bot.send_message(cid, "📤 请直接发送文件给我，它将保存到当前目录。")
@@ -366,6 +472,24 @@ def callback(call):
     elif d == "check_ip":
         ip = NetworkUtils.get_public_ip()
         bot.answer_callback_query(call.id, f"IP: {ip}", show_alert=True)
+
+    elif d == "net_speed":
+        bot.answer_callback_query(call.id, "正在测速，请稍候...", show_alert=False)
+        bot.send_message(cid, "🚀 正在运行 Speedtest...")
+        threading.Thread(target=lambda: bot.send_message(cid, f"📊 **测速结果**\\n\`\`\`\\n{SystemUtils.run_cmd('speedtest-cli --simple')}\\n\`\`\`", parse_mode='Markdown')).start()
+
+    # --- Alist ---
+    elif d == "menu_alist":
+        ver = AlistUtils.get_version()
+        bot.edit_message_text(f"📂 **Alist 管理**\\n版本: {ver}", cid, mid, reply_markup=get_keyboard("alist"))
+
+    elif d == "alist_storage":
+        status = AlistUtils.get_storage_list()
+        bot.send_message(cid, status, parse_mode='Markdown')
+
+    elif d == "restart_alist":
+        bot.answer_callback_query(call.id, "重启中...")
+        SystemUtils.run_cmd("pm2 restart alist")
 
     # --- Stream ---
     elif d == "menu_stream":
@@ -408,6 +532,18 @@ def handle_upload(message):
         bot.reply_to(message, f"✅ 文件已保存: \`{message.document.file_name}\`", parse_mode='Markdown')
     except Exception as e:
         bot.reply_to(message, f"❌ 上传失败: {e}")
+
+def handle_rename(message, old_name):
+    if not is_auth(message): return
+    new_name = message.text.strip()
+    path = FileManager.get_current_path(message.chat.id)
+    old_path = os.path.join(path, old_name)
+    new_path = os.path.join(path, new_name)
+    try:
+        os.rename(old_path, new_path)
+        bot.reply_to(message, "✅ 重命名成功")
+    except Exception as e:
+        bot.reply_to(message, f"❌ 失败: {e}")
 
 # --- Helpers ---
 def start_ffmpeg_stream(url, cid):
