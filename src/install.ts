@@ -93,8 +93,11 @@ import psutil # 需安装: pip install psutil
 import shutil
 
 # --- 🚀 基础配置 ---
-BOT_TOKEN = '${ENV_BOT_TOKEN}'
-ADMIN_ID = ${ENV_ADMIN_ID} 
+BOT_TOKEN = '${ENV_BOT_TOKEN}'.strip('\"\'')
+try:
+    ADMIN_ID = int(str('${ENV_ADMIN_ID}').strip('\"\''))
+except:
+    ADMIN_ID = 0
 ADMIN_IDS = [ADMIN_ID]
 
 print(f"Bot 启动中... Token: {BOT_TOKEN[:5]}*** Admin: {ADMIN_ID}")
@@ -356,7 +359,7 @@ def get_keyboard(menu_type, data=None, chat_id=None):
 
 def is_auth(msg):
     uid = msg.from_user.id if hasattr(msg, 'from_user') else msg.message.chat.id
-    if uid in ADMIN_IDS or ADMIN_ID == 0: return True
+    if int(uid) in ADMIN_IDS or ADMIN_ID == 0: return True
     print(f"Unauthorized: {uid}")
     return False
 
@@ -568,15 +571,35 @@ def monitor():
         
         if time.time() - last_alert_time > 300:
             if psutil.cpu_percent() > ALERT_CPU:
-                bot.send_message(ADMIN_ID, f"🚨 CPU 报警: {psutil.cpu_percent()}%")
+                try:
+                    if ADMIN_ID != 0:
+                        bot.send_message(ADMIN_ID, f"🚨 CPU 报警: {psutil.cpu_percent()}%")
+                except: pass
                 last_alert_time = time.time()
 
 t = threading.Thread(target=monitor)
 t.daemon = True
 t.start()
 
-print("Bot started.")
-bot.polling(non_stop=True)
+# 防止 Android 休眠杀后台
+try:
+    SystemUtils.run_cmd("termux-wake-lock")
+    print("Wake lock acquired.")
+except:
+    pass
+
+print("Bot started. Polling...")
+try:
+    bot.remove_webhook()
+except:
+    pass
+
+while True:
+    try:
+        bot.infinity_polling(timeout=10, long_polling_timeout=5)
+    except Exception as e:
+        print(f"Polling error: {e}")
+        time.sleep(5)
 `;
 
         fs.writeFileSync('bot.py', botContent);
@@ -599,7 +622,7 @@ bot.polling(non_stop=True)
             console.warn("Could not find alist in PATH, assuming 'alist'");
         }
         run(`pm2 start ${alistPath} --name alist -- server`);
-        run('pm2 start python --name bot -- bot.py');
+        run('pm2 start bot.py --name bot --interpreter python');
 
         // Save and resurrect
         run('pm2 save');
