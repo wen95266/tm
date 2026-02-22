@@ -93,9 +93,9 @@ import psutil # 需安装: pip install psutil
 import shutil
 
 # --- 🚀 基础配置 ---
-BOT_TOKEN = '${ENV_BOT_TOKEN}'.strip('\"\'')
+BOT_TOKEN = '${ENV_BOT_TOKEN}'.replace('"', '').replace("'", "")
 try:
-    ADMIN_ID = int(str('${ENV_ADMIN_ID}').strip('\"\''))
+    ADMIN_ID = int(str('${ENV_ADMIN_ID}').replace('"', '').replace("'", ""))
 except:
     ADMIN_ID = 0
 ADMIN_IDS = [ADMIN_ID]
@@ -157,12 +157,19 @@ class SystemUtils:
             temp = SystemUtils.run_cmd("sensors | grep 'temp1' | head -1")
         except: pass
         
+        battery = "N/A"
+        try:
+            bat_info = json.loads(SystemUtils.run_cmd("termux-battery-status"))
+            battery = f"{bat_info.get('percentage', 'N/A')}% ({bat_info.get('status', 'N/A')})"
+        except: pass
+        
         return (f"📊 **Termux 全功能控制台**\\n"
                 f"━━━━━━━━━━━━━━━━\\n"
                 f"⏱ 运行时间: \`{uptime}\`\\n"
                 f"💻 CPU负载: \`{cpu}%\`\\n"
                 f"🧠 内存使用: \`{mem}%\`\\n"
                 f"💾 存储使用: \`{disk}%\`\\n"
+                f"🔋 电池状态: \`{battery}\`\\n"
                 f"🌡 设备温度: \`{temp}\`")
 
 class FileManager:
@@ -311,12 +318,13 @@ def get_keyboard(menu_type, data=None, chat_id=None):
         markup.row(types.InlineKeyboardButton(f"📄 {filename}", callback_data="noop"))
         markup.row(
             types.InlineKeyboardButton("⬇️ 下载", callback_data=f"fm_dl_{filename}"),
-            types.InlineKeyboardButton("✏️ 重命名", callback_data=f"fm_ren_{filename}")
+            types.InlineKeyboardButton("👁️ 预览文本", callback_data=f"fm_view_{filename}")
         )
         markup.row(
-            types.InlineKeyboardButton("🗑 删除", callback_data=f"fm_del_{filename}"),
-            types.InlineKeyboardButton("🔙 返回列表", callback_data="fm_back")
+            types.InlineKeyboardButton("✏️ 重命名", callback_data=f"fm_ren_{filename}"),
+            types.InlineKeyboardButton("🗑 删除", callback_data=f"fm_del_{filename}")
         )
+        markup.row(types.InlineKeyboardButton("🔙 返回列表", callback_data="fm_back"))
 
     elif menu_type == "proc":
         markup.row(types.InlineKeyboardButton("🔄 刷新列表", callback_data="menu_proc"))
@@ -434,6 +442,19 @@ def callback(call):
         try:
             with open(path, 'rb') as f: bot.send_document(cid, f)
         except Exception as e: bot.send_message(cid, f"❌ 失败: {e}")
+
+    elif d.startswith("fm_view_"):
+        filename = d[8:]
+        path = os.path.join(FileManager.get_current_path(cid), filename)
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read(4000) # Telegram message limit is 4096
+                if len(content) == 4000: content += "\\n... (截断)"
+                bot.send_message(cid, f"📄 **{filename}**\\n\`\`\`text\\n{content}\\n\`\`\`", parse_mode='Markdown')
+        except UnicodeDecodeError:
+            bot.answer_callback_query(call.id, "❌ 无法预览非文本文件", show_alert=True)
+        except Exception as e:
+            bot.send_message(cid, f"❌ 读取失败: {e}")
 
     elif d.startswith("fm_del_"):
         filename = d[7:]
