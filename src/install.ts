@@ -394,6 +394,10 @@ def get_keyboard(menu_type, data=None, chat_id=None):
             types.InlineKeyboardButton("🔗 查看地址", url=ALIST_URL)
         )
         markup.row(
+            types.InlineKeyboardButton("🔑 重置密码", callback_data="alist_reset_pwd"),
+            types.InlineKeyboardButton("📝 查看日志", callback_data="alist_logs")
+        )
+        markup.row(
             types.InlineKeyboardButton("🔄 重启服务", callback_data="restart_alist"),
             types.InlineKeyboardButton("🔙 主菜单", callback_data="main_menu")
         )
@@ -572,6 +576,26 @@ def callback(call):
     elif d == "restart_alist":
         bot.answer_callback_query(call.id, "重启中...")
         SystemUtils.run_cmd("pm2 restart alist")
+        bot.send_message(cid, "✅ Alist 已重启")
+
+    elif d == "alist_reset_pwd":
+        bot.answer_callback_query(call.id, "正在重置密码...", show_alert=True)
+        try:
+            # Try to stop alist first to release db lock if any
+            SystemUtils.run_cmd("pm2 stop alist")
+            time.sleep(2)
+            # Run reset command
+            res = SystemUtils.run_cmd("alist admin set admin")
+            # Restart
+            SystemUtils.run_cmd("pm2 restart alist")
+            bot.send_message(cid, f"✅ **密码重置结果**\\n\`\`\`\\n{res}\\n\`\`\`\\n默认密码: \`admin\`\\n请稍候几秒再尝试登录。", parse_mode='Markdown')
+        except Exception as e:
+            bot.send_message(cid, f"❌ 重置失败: {e}")
+            SystemUtils.run_cmd("pm2 restart alist")
+
+    elif d == "alist_logs":
+        log = SystemUtils.run_cmd("pm2 logs alist --lines 20 --nostream --no-color")
+        bot.send_message(cid, f"📝 **Alist Logs**\\n\`\`\`\\n{log}\\n\`\`\`", parse_mode='Markdown')
 
     # --- Stream ---
     elif d == "menu_stream":
