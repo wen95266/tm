@@ -71,12 +71,13 @@ const main = async () => {
     console.log(`6. ${c.bright}⚙️  编辑配置文件 (.env)${c.reset}`);
     console.log(`7. ${c.bright}🐍 编辑 Bot 代码 (bot.py)${c.reset}`);
     console.log(`8. ${c.bright}🔑 自动获取/配置 Alist Token${c.reset}`);
+    console.log(`9. ${c.bright}🌐 配置 Telegram 代理 (解决网络问题)${c.reset}`);
     console.log(`0. ${c.bright}退出${c.reset}`);
     console.log('');
 
     const choice = await new Promise<string>(resolve => {
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-      rl.question(`${c.cyan}请选择功能 [0-8]: ${c.reset}`, (answer) => {
+      rl.question(`${c.cyan}请选择功能 [0-9]: ${c.reset}`, (answer) => {
         rl.close();
         resolve(answer.trim());
       });
@@ -112,6 +113,9 @@ const main = async () => {
         break;
       case '8':
         await configureAlistToken();
+        break;
+      case '9':
+        await configureProxy();
         break;
       case '0':
         console.log("再见！");
@@ -206,6 +210,66 @@ const configureAlistToken = async () => {
             rl.question('', () => { rl.close(); r(); });
         });
     }
+};
+
+const configureProxy = async () => {
+    console.log(`\n${c.cyan}=== 配置 Telegram 代理 ===${c.reset}`);
+    console.log(`${c.yellow}如果您在中国大陆或遇到 Telegram 连接问题 (如 NameResolutionError)，请配置代理。${c.reset}`);
+    console.log(`例如: http://127.0.0.1:7890 或 socks5://127.0.0.1:10808\n`);
+    
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const proxyUrl = await new Promise<string>(resolve => {
+        rl.question(`${c.cyan}请输入代理地址 (留空则清除代理): ${c.reset}`, (answer) => {
+            rl.close();
+            resolve(answer.trim());
+        });
+    });
+
+    const envPath = path.resolve(process.cwd(), '.env');
+    let envContent = '';
+    if (fs.existsSync(envPath)) {
+        envContent = fs.readFileSync(envPath, 'utf-8');
+    }
+    
+    const lines = envContent.split('\n');
+    let found = false;
+    const newLines = lines.map(line => {
+        if (line.startsWith('HTTP_PROXY=')) {
+            found = true;
+            return `HTTP_PROXY=${proxyUrl}`;
+        }
+        return line;
+    });
+    
+    if (!found && proxyUrl) {
+        newLines.push(`HTTP_PROXY=${proxyUrl}`);
+    }
+    
+    fs.writeFileSync(envPath, newLines.join('\n'));
+    
+    if (proxyUrl) {
+        console.log(`${c.green}✅ 代理已配置为: ${proxyUrl}${c.reset}`);
+    } else {
+        console.log(`${c.green}✅ 代理已清除${c.reset}`);
+    }
+    
+    const rl2 = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const apply = await new Promise<string>(resolve => {
+        rl2.question(`${c.cyan}是否立即应用更改并重启服务? [Y/n]: ${c.reset}`, (answer) => {
+            rl2.close();
+            resolve(answer.trim().toLowerCase());
+        });
+    });
+    
+    if (apply === '' || apply === 'y') {
+        await startInstall(true);
+    }
+    
+    console.log("\n按回车键返回菜单...");
+    await new Promise<void>(r => {
+        const rl3 = readline.createInterface({ input: process.stdin, output: process.stdout });
+        rl3.question('', () => { rl3.close(); r(); });
+    });
 };
 
 main().catch(console.error);
