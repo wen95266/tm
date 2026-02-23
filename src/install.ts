@@ -83,11 +83,11 @@ export const startInstall = async () => {
             }
         };
 
-        const pkgsToInstall = ['python', 'termux-api', 'ffmpeg'].filter(p => !checkPkg(p));
+        const pkgsToInstall = ['python', 'termux-api', 'ffmpeg', 'nano', 'vim'].filter(p => !checkPkg(p));
         if (pkgsToInstall.length > 0) {
             run(`pkg install ${pkgsToInstall.join(' ')} -y`);
         } else {
-            console.log("Python, Termux-API, FFmpeg 已安装。");
+            console.log("Python, Termux-API, FFmpeg, Nano, Vim 已安装。");
         }
 
         const checkPip = (pkg: string) => {
