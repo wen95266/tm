@@ -113,7 +113,7 @@ export const startInstall = async (skipAlistConfig = false) => {
 
         if (pipPkgs.length > 0) {
             run('pip install --upgrade pip', true);
-            run(`pip install ${pipPkgs.join(' ')}`);
+            run(`pip install --upgrade pyTelegramBotAPI ${pipPkgs.join(' ')}`);
         } else {
             console.log("Python 依赖已安装。");
         }
@@ -152,6 +152,11 @@ print(f"Bot 启动中... Token: {BOT_TOKEN[:5]}*** Admin: {ADMIN_ID}")
 TG_RTMP_URL = ${JSON.stringify(ENV_RTMP_URL)}
 ALIST_URL = 'http://127.0.0.1:5244'
 ALIST_TOKEN = ${JSON.stringify(ENV_ALIST_TOKEN)}
+
+print(f"Alist Token Configured: {bool(ALIST_TOKEN)} (Length: {len(ALIST_TOKEN)})")
+if ALIST_TOKEN:
+    print(f"Alist Token Prefix: {ALIST_TOKEN[:5]}...")
+
 WIFI_CONFIG = {
     # 'MyHomeWifi': 'password123',
     # 'MyOfficeWifi': 'password456'
@@ -236,8 +241,16 @@ class FileManager:
         if not ALIST_TOKEN: return "⚠️ 未配置 ALIST_TOKEN。请在控制台运行 'npm start' 并选择选项 8 来自动配置 Token。"
         try:
             headers = {'Authorization': ALIST_TOKEN}
-            res = requests.post(f"{ALIST_URL}/api/fs/list", json={"path": path}, headers=headers, timeout=5).json()
-            if res['code'] == 200:
+            # Add refresh=True to ensure fresh data
+            payload = {"path": path, "refresh": True}
+            resp = requests.post(f"{ALIST_URL}/api/fs/list", json=payload, headers=headers, timeout=10)
+            
+            try:
+                res = resp.json()
+            except:
+                return f"❌ API 解析错误: {resp.text[:100]}"
+
+            if res.get('code') == 200:
                 items = res['data']['content'] or []
                 res_items = []
                 for item in items:
@@ -248,9 +261,9 @@ class FileManager:
                     res_items.append({'name': item['name'], 'is_dir': is_dir, 'size': size})
                 user_states[chat_id]['items'] = res_items
                 return res_items
-            return f"❌ API 错误: {res.get('message')}"
+            return f"❌ API 错误 ({res.get('code')}): {res.get('message')}"
         except Exception as e:
-            return str(e)
+            return f"❌ 请求异常: {str(e)}"
 
     @staticmethod
     def get_item_by_idx(chat_id, idx):
