@@ -747,8 +747,8 @@ while True:
         }
 
         // Stop existing PM2 processes to avoid duplicates
-        run('pm2 delete alist', true);
-        run('pm2 delete bot', true);
+        try { execSync('pm2 delete alist', { stdio: 'ignore' }); } catch { /* ignore */ }
+        try { execSync('pm2 delete bot', { stdio: 'ignore' }); } catch { /* ignore */ }
 
         // Start processes
         // Get alist path
