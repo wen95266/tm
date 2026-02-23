@@ -220,6 +220,15 @@ const configureProxy = async () => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const proxyUrl = await new Promise<string>(resolve => {
         rl.question(`${c.cyan}请输入代理地址 (留空则清除代理): ${c.reset}`, (answer) => {
+            resolve(answer.trim());
+        });
+    });
+
+    console.log(`\n${c.yellow}如果您没有代理，但有可用的 Telegram API 反代地址，请在此配置。${c.reset}`);
+    console.log(`例如: https://api.telegram.org (默认) 或 https://your-proxy.com\n`);
+    
+    const apiUrl = await new Promise<string>(resolve => {
+        rl.question(`${c.cyan}请输入自定义 API 地址 (留空则使用默认): ${c.reset}`, (answer) => {
             rl.close();
             resolve(answer.trim());
         });
@@ -232,17 +241,26 @@ const configureProxy = async () => {
     }
     
     const lines = envContent.split('\n');
-    let found = false;
+    let foundProxy = false;
+    let foundApi = false;
+    
     const newLines = lines.map(line => {
         if (line.startsWith('HTTP_PROXY=')) {
-            found = true;
+            foundProxy = true;
             return `HTTP_PROXY=${proxyUrl}`;
+        }
+        if (line.startsWith('TELEGRAM_API_URL=')) {
+            foundApi = true;
+            return `TELEGRAM_API_URL=${apiUrl}`;
         }
         return line;
     });
     
-    if (!found && proxyUrl) {
+    if (!foundProxy && proxyUrl) {
         newLines.push(`HTTP_PROXY=${proxyUrl}`);
+    }
+    if (!foundApi && apiUrl) {
+        newLines.push(`TELEGRAM_API_URL=${apiUrl}`);
     }
     
     fs.writeFileSync(envPath, newLines.join('\n'));
@@ -251,6 +269,12 @@ const configureProxy = async () => {
         console.log(`${c.green}✅ 代理已配置为: ${proxyUrl}${c.reset}`);
     } else {
         console.log(`${c.green}✅ 代理已清除${c.reset}`);
+    }
+
+    if (apiUrl) {
+        console.log(`${c.green}✅ 自定义 API 地址已配置为: ${apiUrl}${c.reset}`);
+    } else {
+        console.log(`${c.green}✅ 自定义 API 地址已清除 (使用默认)${c.reset}`);
     }
     
     const rl2 = readline.createInterface({ input: process.stdin, output: process.stdout });
