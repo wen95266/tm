@@ -18,7 +18,7 @@ const run = (cmd: string, ignoreError = false) => {
     }
 }
 
-export const startInstall = async () => {
+export const startInstall = async (skipAlistConfig = false) => {
     // --- 1. Load .env manually ---
     const envPath = path.resolve(process.cwd(), '.env');
     if (fs.existsSync(envPath)) {
@@ -64,13 +64,17 @@ export const startInstall = async () => {
         // Try to stop existing instance just in case
         run('pkill alist', true);
 
-        try {
-            const password = 'admin'; // Default password for auto-setup
-            // Use global command
-            run(`alist admin set ${password}`);
-            console.log(`\x1b[32mAlist 管理员密码已设置为: ${password}\x1b[0m`);
-        } catch {
-            console.error("设置密码失败，可能是第一次运行需要先启动一次生成配置？");
+        if (!skipAlistConfig) {
+            try {
+                const password = 'admin'; // Default password for auto-setup
+                // Use global command
+                run(`alist admin set ${password}`);
+                console.log(`\x1b[32mAlist 管理员密码已设置为: ${password}\x1b[0m`);
+            } catch {
+                console.error("设置密码失败，可能是第一次运行需要先启动一次生成配置？");
+            }
+        } else {
+            console.log("跳过 Alist 密码重置。");
         }
 
         // --- 3. Bot Environment ---
@@ -294,6 +298,18 @@ class NetworkUtils:
     def get_public_ip():
         try: return requests.get('http://ifconfig.me/ip', timeout=5).text.strip()
         except: return "获取失败"
+
+    @staticmethod
+    def get_lan_ip():
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except:
+            return "127.0.0.1"
 
 class AlistUtils:
     @staticmethod
@@ -567,7 +583,8 @@ def callback(call):
     # --- Alist ---
     elif d == "menu_alist":
         ver = AlistUtils.get_version()
-        bot.edit_message_text(f"📂 **Alist 管理**\\n版本: {ver}", cid, mid, reply_markup=get_keyboard("alist"))
+        lan_ip = NetworkUtils.get_lan_ip()
+        bot.edit_message_text(f"📂 **Alist 管理**\\n版本: {ver}\\n内网地址: http://{lan_ip}:5244", cid, mid, reply_markup=get_keyboard("alist"))
 
     elif d == "alist_storage":
         status = AlistUtils.get_storage_list()

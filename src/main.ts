@@ -182,7 +182,7 @@ const configureAlistToken = async () => {
             });
             
             if (apply === '' || apply === 'y') {
-                await startInstall();
+                await startInstall(true);
                 console.log("\n按回车键返回菜单...");
                 await new Promise<void>(r => {
                     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
