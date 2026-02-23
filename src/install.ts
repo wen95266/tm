@@ -220,36 +220,32 @@ class FileManager:
     @staticmethod
     def get_current_path(chat_id):
         if chat_id not in user_states:
-            default_path = os.path.expanduser('~/storage/shared')
-            if not os.path.exists(default_path):
-                default_path = os.path.expanduser('~')
-            user_states[chat_id] = {'path': default_path}
+            user_states[chat_id] = {'path': '/'}
         return user_states[chat_id]['path']
 
     @staticmethod
     def set_path(chat_id, path):
-        if os.path.exists(path) and os.path.isdir(path):
-            user_states[chat_id]['path'] = path
-            return True
-        return False
+        user_states[chat_id]['path'] = path
+        return True
 
     @staticmethod
     def list_dir(chat_id, path):
+        if not ALIST_TOKEN: return "⚠️ 未配置 ALIST_TOKEN"
         try:
-            items = os.listdir(path)
-            items.sort()
-            res = []
-            for item in items:
-                full = os.path.join(path, item)
-                is_dir = os.path.isdir(full)
-                size = ""
-                if not is_dir:
-                    try:
-                        size = f" ({os.path.getsize(full) // 1024}KB)"
-                    except: pass
-                res.append({'name': item, 'is_dir': is_dir, 'size': size})
-            user_states[chat_id]['items'] = res
-            return res
+            headers = {'Authorization': ALIST_TOKEN}
+            res = requests.post(f"{ALIST_URL}/api/fs/list", json={"path": path}, headers=headers, timeout=5).json()
+            if res['code'] == 200:
+                items = res['data']['content'] or []
+                res_items = []
+                for item in items:
+                    is_dir = item['is_dir']
+                    size = ""
+                    if not is_dir:
+                        size = f" ({item['size'] // 1024}KB)"
+                    res_items.append({'name': item['name'], 'is_dir': is_dir, 'size': size})
+                user_states[chat_id]['items'] = res_items
+                return res_items
+            return f"❌ API 错误: {res.get('message')}"
         except Exception as e:
             return str(e)
 
@@ -261,16 +257,16 @@ class FileManager:
             return None
 
     @staticmethod
-    def delete_item(chat_id, filename):
-        path = os.path.join(FileManager.get_current_path(chat_id), filename)
+    def get_file_url(path):
+        if not ALIST_TOKEN: return None
         try:
-            if os.path.isdir(path):
-                shutil.rmtree(path)
-            else:
-                os.remove(path)
-            return True, "已删除"
-        except Exception as e:
-            return False, str(e)
+            headers = {'Authorization': ALIST_TOKEN}
+            res = requests.post(f"{ALIST_URL}/api/fs/get", json={"path": path}, headers=headers, timeout=5).json()
+            if res['code'] == 200:
+                return res['data']['raw_url']
+            return None
+        except:
+            return None
 
 class NetworkUtils:
     @staticmethod
@@ -363,7 +359,7 @@ def get_keyboard(menu_type, data=None, chat_id=None):
             markup.add(types.InlineKeyboardButton(f"❌ 错误: {items}", callback_data="noop"))
             
         markup.row(
-            types.InlineKeyboardButton("📤 上传文件", callback_data="fm_upload"),
+            types.InlineKeyboardButton("🔄 刷新", callback_data="fm_refresh"),
             types.InlineKeyboardButton("🔙 主菜单", callback_data="main_menu")
         )
 
@@ -372,12 +368,8 @@ def get_keyboard(menu_type, data=None, chat_id=None):
         filename = FileManager.get_item_by_idx(chat_id, idx) or "Unknown"
         markup.row(types.InlineKeyboardButton(f"📄 {filename}", callback_data="noop"))
         markup.row(
-            types.InlineKeyboardButton("⬇️ 下载", callback_data=f"fm_dl_{idx}"),
-            types.InlineKeyboardButton("👁️ 预览文本", callback_data=f"fm_view_{idx}")
-        )
-        markup.row(
-            types.InlineKeyboardButton("✏️ 重命名", callback_data=f"fm_ren_{idx}"),
-            types.InlineKeyboardButton("🗑 删除", callback_data=f"fm_del_{idx}")
+            types.InlineKeyboardButton("▶️ 推流直播", callback_data=f"fm_stream_{idx}"),
+            types.InlineKeyboardButton("🔗 获取直链", callback_data=f"fm_link_{idx}")
         )
         markup.row(types.InlineKeyboardButton("🔙 返回列表", callback_data="fm_back"))
 
@@ -473,7 +465,9 @@ def callback(call):
     elif d == "fm_up" or d == "fm_back":
         curr = FileManager.get_current_path(cid)
         if d == "fm_up":
-            curr = os.path.dirname(curr)
+            if curr != '/':
+                curr = os.path.dirname(curr).replace('\\\\', '/')
+                if curr == '': curr = '/'
             FileManager.set_path(cid, curr)
         bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{curr}\`", cid, mid, reply_markup=get_keyboard("fm", curr), parse_mode='Markdown')
 
@@ -482,7 +476,7 @@ def callback(call):
         folder = FileManager.get_item_by_idx(cid, idx)
         if folder:
             curr = FileManager.get_current_path(cid)
-            new_path = os.path.join(curr, folder)
+            new_path = os.path.join(curr, folder).replace('\\\\', '/')
             if FileManager.set_path(cid, new_path):
                 bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{new_path}\`", cid, mid, reply_markup=get_keyboard("fm", new_path), parse_mode='Markdown')
             else:
@@ -498,51 +492,33 @@ def callback(call):
         else:
             bot.answer_callback_query(call.id, "文件不存在")
 
-    elif d.startswith("fm_dl_"):
-        idx = d[6:]
+    elif d.startswith("fm_stream_"):
+        idx = d[10:]
         filename = FileManager.get_item_by_idx(cid, idx)
         if not filename: return bot.answer_callback_query(call.id, "文件不存在")
-        path = os.path.join(FileManager.get_current_path(cid), filename)
-        bot.answer_callback_query(call.id, "正在发送...")
-        try:
-            with open(path, 'rb') as f: bot.send_document(cid, f)
-        except Exception as e: bot.send_message(cid, f"❌ 失败: {e}")
+        path = os.path.join(FileManager.get_current_path(cid), filename).replace('\\\\', '/')
+        url = FileManager.get_file_url(path)
+        if url:
+            bot.answer_callback_query(call.id, "准备推流...")
+            start_ffmpeg_stream(url, cid)
+        else:
+            bot.answer_callback_query(call.id, "无法获取直链，请检查 Alist 配置", show_alert=True)
 
-    elif d.startswith("fm_view_"):
+    elif d.startswith("fm_link_"):
         idx = d[8:]
         filename = FileManager.get_item_by_idx(cid, idx)
         if not filename: return bot.answer_callback_query(call.id, "文件不存在")
-        path = os.path.join(FileManager.get_current_path(cid), filename)
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                content = f.read(4000) # Telegram message limit is 4096
-                if len(content) == 4000: content += "\\n... (截断)"
-                bot.send_message(cid, f"📄 **{filename}**\\n\`\`\`text\\n{content}\\n\`\`\`", parse_mode='Markdown')
-        except UnicodeDecodeError:
-            bot.answer_callback_query(call.id, "❌ 无法预览非文本文件", show_alert=True)
-        except Exception as e:
-            bot.send_message(cid, f"❌ 读取失败: {e}")
+        path = os.path.join(FileManager.get_current_path(cid), filename).replace('\\\\', '/')
+        url = FileManager.get_file_url(path)
+        if url:
+            bot.send_message(cid, f"🔗 **{filename} 直链:**\\n\`{url}\`", parse_mode='Markdown')
+            bot.answer_callback_query(call.id, "直链已发送")
+        else:
+            bot.answer_callback_query(call.id, "无法获取直链，请检查 Alist 配置", show_alert=True)
 
-    elif d.startswith("fm_del_"):
-        idx = d[7:]
-        filename = FileManager.get_item_by_idx(cid, idx)
-        if not filename: return bot.answer_callback_query(call.id, "文件不存在")
-        success, msg = FileManager.delete_item(cid, filename)
-        bot.answer_callback_query(call.id, msg, show_alert=True)
-        if success:
-            path = FileManager.get_current_path(cid)
-            bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{path}\`", cid, mid, reply_markup=get_keyboard("fm", path), parse_mode='Markdown')
-
-    elif d.startswith("fm_ren_"):
-        idx = d[7:]
-        filename = FileManager.get_item_by_idx(cid, idx)
-        if not filename: return bot.answer_callback_query(call.id, "文件不存在")
-        msg = bot.send_message(cid, f"✏️ 请输入 \`{filename}\` 的新名称:", parse_mode='Markdown')
-        bot.register_next_step_handler(msg, lambda m: handle_rename(m, filename))
-
-    elif d == "fm_upload":
-        msg = bot.send_message(cid, "📤 请直接发送文件给我，它将保存到当前目录。")
-        bot.register_next_step_handler(msg, handle_upload)
+    elif d == "fm_refresh":
+        path = FileManager.get_current_path(cid)
+        bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{path}\`", cid, mid, reply_markup=get_keyboard("fm", path), parse_mode='Markdown')
 
     # --- Process Manager ---
     elif d == "menu_proc":
@@ -622,58 +598,6 @@ def callback(call):
     elif d == "menu_logs":
         log = SystemUtils.run_cmd("pm2 logs bot --lines 15 --nostream --no-color")
         bot.send_message(cid, f"📝 **Bot Logs**\\n\`\`\`\\n{log}\\n\`\`\`", parse_mode='Markdown')
-
-def handle_upload(message):
-    if not is_auth(message): return
-    
-    if message.text and message.text.startswith('/'):
-        bot.reply_to(message, "❌ 取消上传。")
-        return
-
-    file_id = None
-    file_name = "uploaded_file"
-    
-    if message.document:
-        file_id = message.document.file_id
-        file_name = message.document.file_name
-    elif message.photo:
-        file_id = message.photo[-1].file_id
-        file_name = f"photo_{int(time.time())}.jpg"
-    elif message.video:
-        file_id = message.video.file_id
-        file_name = f"video_{int(time.time())}.mp4"
-    else:
-        bot.reply_to(message, "❌ 不支持的文件类型，请发送文件、照片或视频。")
-        return
-    
-    try:
-        bot.reply_to(message, "⏳ 正在下载...")
-        file_info = bot.get_file(file_id)
-        downloaded = bot.download_file(file_info.file_path)
-        path = os.path.join(FileManager.get_current_path(message.chat.id), file_name)
-        
-        with open(path, 'wb') as new_file:
-            new_file.write(downloaded)
-        bot.reply_to(message, f"✅ 文件已保存: \`{file_name}\`", parse_mode='Markdown')
-    except Exception as e:
-        bot.reply_to(message, f"❌ 上传失败: {e}")
-
-def handle_rename(message, old_name):
-    if not is_auth(message): return
-    
-    if message.text and message.text.startswith('/'):
-        bot.reply_to(message, "❌ 取消重命名。")
-        return
-
-    new_name = message.text.strip()
-    path = FileManager.get_current_path(message.chat.id)
-    old_path = os.path.join(path, old_name)
-    new_path = os.path.join(path, new_name)
-    try:
-        os.rename(old_path, new_path)
-        bot.reply_to(message, "✅ 重命名成功")
-    except Exception as e:
-        bot.reply_to(message, f"❌ 失败: {e}")
 
 # --- Helpers ---
 def start_ffmpeg_stream(url, cid):
