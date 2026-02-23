@@ -169,7 +169,6 @@ try:
         telebot.types.BotCommand("menu", "打开控制面板"),
         telebot.types.BotCommand("status", "查看系统状态"),
         telebot.types.BotCommand("stream", "直播推流设置"),
-        telebot.types.BotCommand("cmd", "执行终端命令"),
         telebot.types.BotCommand("help", "显示帮助信息")
     ])
     print("✅ 菜单命令已设置")
@@ -335,7 +334,7 @@ def get_keyboard(menu_type, data=None, chat_id=None):
             types.InlineKeyboardButton("⚙️ 进程监控", callback_data="menu_proc")
         )
         markup.row(
-            types.InlineKeyboardButton("💻 终端命令", callback_data="menu_cmd"),
+            types.InlineKeyboardButton("🔄 强制更新", callback_data="update_bot"),
             types.InlineKeyboardButton("📂 Alist", callback_data="menu_alist")
         )
         markup.row(
@@ -590,10 +589,32 @@ def callback(call):
             bot.answer_callback_query(call.id, "已停止")
         bot.edit_message_reply_markup(cid, mid, reply_markup=get_keyboard("stream"))
 
-    # --- Cmd & Logs ---
-    elif d == "menu_cmd":
-        msg = bot.send_message(cid, "💻 请输入 Shell 命令:")
-        bot.register_next_step_handler(msg, lambda m: bot.reply_to(m, f"\`\`\`\\n{SystemUtils.run_cmd(m.text)}\\n\`\`\`", parse_mode='Markdown'))
+    # --- Update & Logs ---
+    elif d == "update_bot":
+        bot.answer_callback_query(call.id, "⏳ 正在更新...", show_alert=True)
+        bot.send_message(cid, "🔄 **开始更新流程**\\n1. 拉取代码...\\n2. 重新安装...\\n3. 重启服务...")
+        
+        def run_update():
+            # 1. Pull code
+            pull_res = SystemUtils.run_cmd("git pull", timeout=60)
+            bot.send_message(cid, f"📦 **Git Pull 结果**\\n\`\`\`\\n{pull_res}\\n\`\`\`", parse_mode='Markdown')
+            
+            # 2. Run install
+            bot.send_message(cid, "⚙️ 正在运行安装脚本 (npm install & setup)...")
+            try:
+                # Run npm install first
+                SystemUtils.run_cmd("npm install", timeout=300)
+                # Run main.ts with --install flag to regenerate bot.py and setup
+                setup_res = SystemUtils.run_cmd("npm start -- --install", timeout=120)
+                bot.send_message(cid, f"✅ **安装完成**\\n\`\`\`\\n{setup_res}\\n\`\`\`", parse_mode='Markdown')
+                
+                # 3. Restart bot
+                bot.send_message(cid, "🔄 正在重启 Bot...")
+                SystemUtils.run_cmd("pm2 restart bot")
+            except Exception as e:
+                bot.send_message(cid, f"❌ 更新失败: {e}")
+
+        threading.Thread(target=run_update).start()
 
     elif d == "menu_logs":
         log = SystemUtils.run_cmd("pm2 logs bot --lines 15 --nostream --no-color")

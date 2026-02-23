@@ -53,6 +53,14 @@ const runCommand = (cmd: string) => {
 // --- 4. Main Loop ---
 
 const main = async () => {
+  // Check for --install flag
+  if (process.argv.includes('--install')) {
+    console.log("Detected --install flag, running auto-install...");
+    await startInstall();
+    console.log("Install completed.");
+    process.exit(0);
+  }
+
   while (true) {
     printHeader("Termux Alist 全能控制台");
     console.log(`1. ${c.bright}🚀 一键安装/修复 (Alist + Bot + PM2)${c.reset}`);
