@@ -49,12 +49,12 @@ if [ -f "package.json" ]; then
 EOF
     fi
 
-    # Remove node_modules and package-lock.json to ensure clean install if previous failed
-    if [ -d "node_modules" ]; then
-        echo "清理旧依赖..."
-        rm -rf node_modules package-lock.json
+    if [ ! -d "node_modules" ]; then
+        echo "正在安装项目依赖..."
+        npm install
+    else
+        echo "依赖已安装，跳过 npm install。"
     fi
-    npm install
 else
     echo -e "\033[1;31m错误: 未找到 package.json。请确保你在正确的目录下。\033[0m"
     exit 1

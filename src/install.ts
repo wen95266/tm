@@ -7,11 +7,11 @@ const run = (cmd: string, ignoreError = false) => {
     console.log(`\x1b[36m> ${cmd}\x1b[0m`);
     try {
         execSync(cmd, { stdio: 'inherit' });
-    } catch (_e) {
+    } catch (e: unknown) {
         if (!ignoreError) {
             console.error(`\x1b[31mCommand failed: ${cmd}\x1b[0m`);
             // Don't exit process in module mode, just throw
-            throw new Error(`Command failed: ${cmd}`);
+            throw new Error(`Command failed: ${cmd}`, { cause: e });
         } else {
             console.warn(`\x1b[33mCommand failed (ignored): ${cmd}\x1b[0m`);
         }
@@ -44,14 +44,18 @@ export const startInstall = async () => {
         // --- 2. Alist Installation ---
         console.log("\n\x1b[1;34m[1/5] 安装 Alist...\x1b[0m");
 
-        // Remove local binary if exists to avoid confusion
-        if (fs.existsSync('alist')) {
-            console.log("清理旧的本地 Alist 文件...");
-            fs.unlinkSync('alist');
+        try {
+            execSync('command -v alist', { stdio: 'ignore' });
+            console.log("Alist 已安装，跳过安装步骤。");
+        } catch {
+            // Remove local binary if exists to avoid confusion
+            if (fs.existsSync('alist')) {
+                console.log("清理旧的本地 Alist 文件...");
+                fs.unlinkSync('alist');
+            }
+            // Install via pkg
+            run('pkg install alist -y');
         }
-
-        // Install via pkg
-        run('pkg install alist -y');
 
         // Set Alist Password
         console.log("\n\x1b[1;34m[2/5] 配置 Alist...\x1b[0m");
@@ -69,10 +73,43 @@ export const startInstall = async () => {
 
         // --- 3. Bot Environment ---
         console.log("\n\x1b[1;34m[3/5] 安装 Bot 环境...\x1b[0m");
-        run('pkg install python termux-api ffmpeg -y');
-        // Upgrade pip first to avoid issues
-        run('pip install --upgrade pip', true);
-        run('pip install pyTelegramBotAPI requests psutil');
+        
+        const checkPkg = (pkg: string) => {
+            try {
+                execSync(`dpkg -s ${pkg}`, { stdio: 'ignore' });
+                return true;
+            } catch {
+                return false;
+            }
+        };
+
+        const pkgsToInstall = ['python', 'termux-api', 'ffmpeg'].filter(p => !checkPkg(p));
+        if (pkgsToInstall.length > 0) {
+            run(`pkg install ${pkgsToInstall.join(' ')} -y`);
+        } else {
+            console.log("Python, Termux-API, FFmpeg 已安装。");
+        }
+
+        const checkPip = (pkg: string) => {
+            try {
+                execSync(`python -c "import ${pkg}"`, { stdio: 'ignore' });
+                return true;
+            } catch {
+                return false;
+            }
+        };
+
+        const pipPkgs = [];
+        if (!checkPip('telebot')) pipPkgs.push('pyTelegramBotAPI');
+        if (!checkPip('requests')) pipPkgs.push('requests');
+        if (!checkPip('psutil')) pipPkgs.push('psutil');
+
+        if (pipPkgs.length > 0) {
+            run('pip install --upgrade pip', true);
+            run(`pip install ${pipPkgs.join(' ')}`);
+        } else {
+            console.log("Python 依赖已安装。");
+        }
 
         console.log("\x1b[1;33m⚠️ 重要提示: 请确保你已安装 'Termux:API' 安卓应用，并授予其'位置信息'权限，否则 WiFi 功能将无法工作！\x1b[0m");
 
@@ -93,9 +130,9 @@ import psutil # 需安装: pip install psutil
 import shutil
 
 # --- 🚀 基础配置 ---
-BOT_TOKEN = '${ENV_BOT_TOKEN}'.replace('"', '').replace("'", "")
+BOT_TOKEN = ${JSON.stringify(ENV_BOT_TOKEN)}
 try:
-    ADMIN_ID = int(str('${ENV_ADMIN_ID}').replace('"', '').replace("'", ""))
+    ADMIN_ID = int(${JSON.stringify(ENV_ADMIN_ID)})
 except:
     ADMIN_ID = 0
 ADMIN_IDS = [ADMIN_ID]
@@ -587,8 +624,13 @@ def monitor():
     while True:
         time.sleep(10)
         if auto_switch_enabled and not NetworkUtils.check_internet():
-            # Auto switch logic here (simplified)
-            pass
+            for ssid, pwd in WIFI_CONFIG.items():
+                if NetworkUtils.connect_wifi(ssid, pwd):
+                    try:
+                        if ADMIN_ID != 0:
+                            bot.send_message(ADMIN_ID, f"🔄 自动切换 WiFi 成功: {ssid}")
+                    except: pass
+                    break
         
         if time.time() - last_alert_time > 300:
             if psutil.cpu_percent() > ALERT_CPU:
@@ -628,7 +670,12 @@ while True:
 
         // --- 5. PM2 Configuration ---
         console.log("\n\x1b[1;34m[5/5] 配置 PM2 自动启动...\x1b[0m");
-        run('npm install pm2 -g');
+        try {
+            execSync('command -v pm2', { stdio: 'ignore' });
+            console.log("PM2 已安装。");
+        } catch {
+            run('npm install pm2 -g');
+        }
 
         // Stop existing PM2 processes to avoid duplicates
         run('pm2 delete alist', true);
@@ -643,7 +690,8 @@ while True:
             console.warn("Could not find alist in PATH, assuming 'alist'");
         }
         run(`pm2 start ${alistPath} --name alist -- server`);
-        run('pm2 start bot.py --name bot --interpreter python');
+        const botPath = path.resolve('bot.py');
+        run(`pm2 start ${botPath} --name bot --interpreter python`);
 
         // Save and resurrect
         run('pm2 save');
