@@ -111,12 +111,8 @@ export const startInstall = async (skipAlistConfig = false) => {
         if (!checkPip('psutil')) pipPkgs.push('psutil');
         if (!checkPip('speedtest')) pipPkgs.push('speedtest-cli');
 
-        if (pipPkgs.length > 0) {
-            run('pip install --upgrade pip', true);
-            run(`pip install --upgrade pyTelegramBotAPI ${pipPkgs.join(' ')}`);
-        } else {
-            console.log("Python 依赖已安装。");
-        }
+        console.log("正在检查并更新 Python 依赖...");
+        run('pip install --upgrade pyTelegramBotAPI requests psutil speedtest-cli', true);
 
         console.log("\x1b[1;33m⚠️ 重要提示: 请确保你已安装 'Termux:API' 安卓应用，并授予其'位置信息'权限，否则 WiFi 功能将无法工作！\x1b[0m");
         console.log("\x1b[1;33m⚠️ 正在请求存储权限，请在手机上点击'允许'...\x1b[0m");
@@ -719,6 +715,9 @@ try:
 except:
     pass
 
+import logging
+telebot.logger.setLevel(logging.INFO)
+
 print("Bot started. Polling...")
 try:
     bot.remove_webhook()
@@ -727,7 +726,8 @@ except:
 
 while True:
     try:
-        bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        # Use allowed_updates to avoid processing unnecessary updates and potentially fix polling issues
+        bot.infinity_polling(timeout=10, long_polling_timeout=5, allowed_updates=telebot.util.update_types)
     except Exception as e:
         print(f"Polling error: {e}")
         time.sleep(5)
