@@ -37,6 +37,8 @@ export const startInstall = async () => {
 
     const ENV_BOT_TOKEN = process.env.BOT_TOKEN || '你的_BOT_TOKEN';
     const ENV_ADMIN_ID = process.env.ADMIN_ID || '0';
+    const ENV_ALIST_TOKEN = process.env.ALIST_TOKEN || '';
+    const ENV_RTMP_URL = process.env.RTMP_URL || 'rtmp://你的服务器地址/密钥';
 
     console.log("\x1b[1;32m=== 开始全自动安装流程 ===\x1b[0m");
 
@@ -103,6 +105,7 @@ export const startInstall = async () => {
         if (!checkPip('telebot')) pipPkgs.push('pyTelegramBotAPI');
         if (!checkPip('requests')) pipPkgs.push('requests');
         if (!checkPip('psutil')) pipPkgs.push('psutil');
+        if (!checkPip('speedtest')) pipPkgs.push('speedtest-cli');
 
         if (pipPkgs.length > 0) {
             run('pip install --upgrade pip', true);
@@ -112,6 +115,8 @@ export const startInstall = async () => {
         }
 
         console.log("\x1b[1;33m⚠️ 重要提示: 请确保你已安装 'Termux:API' 安卓应用，并授予其'位置信息'权限，否则 WiFi 功能将无法工作！\x1b[0m");
+        console.log("\x1b[1;33m⚠️ 正在请求存储权限，请在手机上点击'允许'...\x1b[0m");
+        run('termux-setup-storage', true);
 
         // --- 4. Generate bot.py ---
         console.log("\n\x1b[1;34m[4/5] 生成终极企业级 bot.py...\x1b[0m");
@@ -140,12 +145,12 @@ ADMIN_IDS = [ADMIN_ID]
 print(f"Bot 启动中... Token: {BOT_TOKEN[:5]}*** Admin: {ADMIN_ID}")
 
 # --- ⚙️ 全局配置 ---
-TG_RTMP_URL = 'rtmp://你的服务器地址/密钥'
+TG_RTMP_URL = ${JSON.stringify(ENV_RTMP_URL)}
 ALIST_URL = 'http://127.0.0.1:5244'
-ALIST_TOKEN = '' # 填入 Token 以管理存储
+ALIST_TOKEN = ${JSON.stringify(ENV_ALIST_TOKEN)}
 WIFI_CONFIG = {
-    'MyHomeWifi': 'password123',
-    'MyOfficeWifi': 'password456'
+    # 'MyHomeWifi': 'password123',
+    # 'MyOfficeWifi': 'password456'
 }
 PING_TARGET = '223.5.5.5' 
 ALERT_CPU = 90
@@ -178,6 +183,8 @@ class SystemUtils:
     def run_cmd(cmd, timeout=30):
         try:
             return subprocess.check_output(cmd, shell=True, timeout=timeout, stderr=subprocess.STDOUT).decode('utf-8').strip()
+        except subprocess.CalledProcessError as e:
+            return e.output.decode('utf-8').strip() if e.output else str(e)
         except subprocess.TimeoutExpired:
             return "Error: Command timed out"
         except Exception as e:
@@ -213,7 +220,10 @@ class FileManager:
     @staticmethod
     def get_current_path(chat_id):
         if chat_id not in user_states:
-            user_states[chat_id] = {'path': os.getcwd()}
+            default_path = os.path.expanduser('~/storage/shared')
+            if not os.path.exists(default_path):
+                default_path = os.path.expanduser('~')
+            user_states[chat_id] = {'path': default_path}
         return user_states[chat_id]['path']
 
     @staticmethod
@@ -224,7 +234,7 @@ class FileManager:
         return False
 
     @staticmethod
-    def list_dir(path):
+    def list_dir(chat_id, path):
         try:
             items = os.listdir(path)
             items.sort()
@@ -238,9 +248,17 @@ class FileManager:
                         size = f" ({os.path.getsize(full) // 1024}KB)"
                     except: pass
                 res.append({'name': item, 'is_dir': is_dir, 'size': size})
+            user_states[chat_id]['items'] = res
             return res
         except Exception as e:
             return str(e)
+
+    @staticmethod
+    def get_item_by_idx(chat_id, idx):
+        try:
+            return user_states[chat_id]['items'][int(idx)]['name']
+        except:
+            return None
 
     @staticmethod
     def delete_item(chat_id, filename):
@@ -334,14 +352,13 @@ def get_keyboard(menu_type, data=None, chat_id=None):
         markup.row(types.InlineKeyboardButton(f"📂 {path}", callback_data="noop"))
         markup.row(types.InlineKeyboardButton("⬆️ 上一级", callback_data="fm_up"))
         
-        items = FileManager.list_dir(path)
+        items = FileManager.list_dir(chat_id, path)
         if isinstance(items, list):
-            dirs = [i for i in items if i['is_dir']][:10]
-            files = [i for i in items if not i['is_dir']][:10]
-            for d in dirs:
-                markup.add(types.InlineKeyboardButton(f"📁 {d['name']}", callback_data=f"fm_cd_{d['name']}"))
-            for f in files:
-                markup.add(types.InlineKeyboardButton(f"📄 {f['name']}{f['size']}", callback_data=f"fm_opt_{f['name']}"))
+            for idx, item in enumerate(items[:20]): # Show up to 20 items
+                if item['is_dir']:
+                    markup.add(types.InlineKeyboardButton(f"📁 {item['name']}", callback_data=f"fm_cd_{idx}"))
+                else:
+                    markup.add(types.InlineKeyboardButton(f"📄 {item['name']}{item['size']}", callback_data=f"fm_opt_{idx}"))
         else:
             markup.add(types.InlineKeyboardButton(f"❌ 错误: {items}", callback_data="noop"))
             
@@ -351,15 +368,16 @@ def get_keyboard(menu_type, data=None, chat_id=None):
         )
 
     elif menu_type == "fm_file_opt":
-        filename = data
+        idx = data
+        filename = FileManager.get_item_by_idx(chat_id, idx) or "Unknown"
         markup.row(types.InlineKeyboardButton(f"📄 {filename}", callback_data="noop"))
         markup.row(
-            types.InlineKeyboardButton("⬇️ 下载", callback_data=f"fm_dl_{filename}"),
-            types.InlineKeyboardButton("👁️ 预览文本", callback_data=f"fm_view_{filename}")
+            types.InlineKeyboardButton("⬇️ 下载", callback_data=f"fm_dl_{idx}"),
+            types.InlineKeyboardButton("👁️ 预览文本", callback_data=f"fm_view_{idx}")
         )
         markup.row(
-            types.InlineKeyboardButton("✏️ 重命名", callback_data=f"fm_ren_{filename}"),
-            types.InlineKeyboardButton("🗑 删除", callback_data=f"fm_del_{filename}")
+            types.InlineKeyboardButton("✏️ 重命名", callback_data=f"fm_ren_{idx}"),
+            types.InlineKeyboardButton("🗑 删除", callback_data=f"fm_del_{idx}")
         )
         markup.row(types.InlineKeyboardButton("🔙 返回列表", callback_data="fm_back"))
 
@@ -460,20 +478,30 @@ def callback(call):
         bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{curr}\`", cid, mid, reply_markup=get_keyboard("fm", curr), parse_mode='Markdown')
 
     elif d.startswith("fm_cd_"):
-        folder = d[6:]
-        curr = FileManager.get_current_path(cid)
-        new_path = os.path.join(curr, folder)
-        if FileManager.set_path(cid, new_path):
-            bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{new_path}\`", cid, mid, reply_markup=get_keyboard("fm", new_path), parse_mode='Markdown')
+        idx = d[6:]
+        folder = FileManager.get_item_by_idx(cid, idx)
+        if folder:
+            curr = FileManager.get_current_path(cid)
+            new_path = os.path.join(curr, folder)
+            if FileManager.set_path(cid, new_path):
+                bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{new_path}\`", cid, mid, reply_markup=get_keyboard("fm", new_path), parse_mode='Markdown')
+            else:
+                bot.answer_callback_query(call.id, "无法进入目录")
         else:
-            bot.answer_callback_query(call.id, "无法进入目录")
+            bot.answer_callback_query(call.id, "目录不存在")
 
     elif d.startswith("fm_opt_"):
-        filename = d[7:]
-        bot.edit_message_text(f"📄 **文件操作**: {filename}", cid, mid, reply_markup=get_keyboard("fm_file_opt", filename))
+        idx = d[7:]
+        filename = FileManager.get_item_by_idx(cid, idx)
+        if filename:
+            bot.edit_message_text(f"📄 **文件操作**: {filename}", cid, mid, reply_markup=get_keyboard("fm_file_opt", idx))
+        else:
+            bot.answer_callback_query(call.id, "文件不存在")
 
     elif d.startswith("fm_dl_"):
-        filename = d[6:]
+        idx = d[6:]
+        filename = FileManager.get_item_by_idx(cid, idx)
+        if not filename: return bot.answer_callback_query(call.id, "文件不存在")
         path = os.path.join(FileManager.get_current_path(cid), filename)
         bot.answer_callback_query(call.id, "正在发送...")
         try:
@@ -481,7 +509,9 @@ def callback(call):
         except Exception as e: bot.send_message(cid, f"❌ 失败: {e}")
 
     elif d.startswith("fm_view_"):
-        filename = d[8:]
+        idx = d[8:]
+        filename = FileManager.get_item_by_idx(cid, idx)
+        if not filename: return bot.answer_callback_query(call.id, "文件不存在")
         path = os.path.join(FileManager.get_current_path(cid), filename)
         try:
             with open(path, 'r', encoding='utf-8') as f:
@@ -494,7 +524,9 @@ def callback(call):
             bot.send_message(cid, f"❌ 读取失败: {e}")
 
     elif d.startswith("fm_del_"):
-        filename = d[7:]
+        idx = d[7:]
+        filename = FileManager.get_item_by_idx(cid, idx)
+        if not filename: return bot.answer_callback_query(call.id, "文件不存在")
         success, msg = FileManager.delete_item(cid, filename)
         bot.answer_callback_query(call.id, msg, show_alert=True)
         if success:
@@ -502,7 +534,9 @@ def callback(call):
             bot.edit_message_text(f"📂 **文件管理器**\\n路径: \`{path}\`", cid, mid, reply_markup=get_keyboard("fm", path), parse_mode='Markdown')
 
     elif d.startswith("fm_ren_"):
-        filename = d[7:]
+        idx = d[7:]
+        filename = FileManager.get_item_by_idx(cid, idx)
+        if not filename: return bot.answer_callback_query(call.id, "文件不存在")
         msg = bot.send_message(cid, f"✏️ 请输入 \`{filename}\` 的新名称:", parse_mode='Markdown')
         bot.register_next_step_handler(msg, lambda m: handle_rename(m, filename))
 
@@ -527,9 +561,21 @@ def callback(call):
         bot.edit_message_text(msg, cid, mid, reply_markup=get_keyboard("proc"), parse_mode='Markdown')
 
     # --- Network ---
-    elif d == "menu_net":
+    elif d == "menu_net" or d == "refresh_net":
         bot.edit_message_text("📡 **网络中心**", cid, mid, reply_markup=get_keyboard("net"))
     
+    elif d == "scan_wifi":
+        bot.answer_callback_query(call.id, "正在扫描 WiFi...", show_alert=False)
+        try:
+            res = SystemUtils.run_cmd('termux-wifi-scaninfo')
+            info = json.loads(res)
+            msg = "🔍 **WiFi 扫描结果**\\n"
+            for w in info[:10]:
+                msg += f"📶 {w.get('ssid', 'Hidden')} ({w.get('rssi', 0)}dBm)\\n"
+            bot.send_message(cid, msg, parse_mode='Markdown')
+        except Exception as e:
+            bot.send_message(cid, f"❌ 扫描失败: {e}")
+
     elif d == "check_ip":
         ip = NetworkUtils.get_public_ip()
         bot.answer_callback_query(call.id, f"IP: {ip}", show_alert=True)
@@ -574,28 +620,51 @@ def callback(call):
         bot.register_next_step_handler(msg, lambda m: bot.reply_to(m, f"\`\`\`\\n{SystemUtils.run_cmd(m.text)}\\n\`\`\`", parse_mode='Markdown'))
 
     elif d == "menu_logs":
-        log = SystemUtils.run_cmd("pm2 logs bot --lines 15 --nostream")
+        log = SystemUtils.run_cmd("pm2 logs bot --lines 15 --nostream --no-color")
         bot.send_message(cid, f"📝 **Bot Logs**\\n\`\`\`\\n{log}\\n\`\`\`", parse_mode='Markdown')
 
 def handle_upload(message):
     if not is_auth(message): return
-    if not message.document:
-        bot.reply_to(message, "❌ 未检测到文件")
+    
+    if message.text and message.text.startswith('/'):
+        bot.reply_to(message, "❌ 取消上传。")
+        return
+
+    file_id = None
+    file_name = "uploaded_file"
+    
+    if message.document:
+        file_id = message.document.file_id
+        file_name = message.document.file_name
+    elif message.photo:
+        file_id = message.photo[-1].file_id
+        file_name = f"photo_{int(time.time())}.jpg"
+    elif message.video:
+        file_id = message.video.file_id
+        file_name = f"video_{int(time.time())}.mp4"
+    else:
+        bot.reply_to(message, "❌ 不支持的文件类型，请发送文件、照片或视频。")
         return
     
     try:
-        file_info = bot.get_file(message.document.file_id)
+        bot.reply_to(message, "⏳ 正在下载...")
+        file_info = bot.get_file(file_id)
         downloaded = bot.download_file(file_info.file_path)
-        path = os.path.join(FileManager.get_current_path(message.chat.id), message.document.file_name)
+        path = os.path.join(FileManager.get_current_path(message.chat.id), file_name)
         
         with open(path, 'wb') as new_file:
             new_file.write(downloaded)
-        bot.reply_to(message, f"✅ 文件已保存: \`{message.document.file_name}\`", parse_mode='Markdown')
+        bot.reply_to(message, f"✅ 文件已保存: \`{file_name}\`", parse_mode='Markdown')
     except Exception as e:
         bot.reply_to(message, f"❌ 上传失败: {e}")
 
 def handle_rename(message, old_name):
     if not is_auth(message): return
+    
+    if message.text and message.text.startswith('/'):
+        bot.reply_to(message, "❌ 取消重命名。")
+        return
+
     new_name = message.text.strip()
     path = FileManager.get_current_path(message.chat.id)
     old_path = os.path.join(path, old_name)

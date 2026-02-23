@@ -59,7 +59,7 @@ const main = async () => {
     console.log(`2. ${c.bright}🤖 查看 Bot 日志${c.reset}`);
     console.log(`3. ${c.bright}🔄 重启所有服务${c.reset}`);
     console.log(`4. ${c.bright}🛑 停止所有服务${c.reset}`);
-    console.log(`5. ${c.bright}📂 查看 Alist 密码${c.reset}`);
+    console.log(`5. ${c.bright}🔑 重置 Alist 密码为 admin${c.reset}`);
     console.log(`6. ${c.bright}⚙️  编辑配置文件 (.env)${c.reset}`);
     console.log(`7. ${c.bright}🐍 编辑 Bot 代码 (bot.py)${c.reset}`);
     console.log(`0. ${c.bright}退出${c.reset}`);
@@ -92,11 +92,8 @@ const main = async () => {
         await runCommand('pm2 stop all');
         break;
       case '5':
-        await runCommand('alist admin set admin'); // Reset to admin/admin or just show? Better to set.
-        // Or just show config? Alist doesn't have a simple "show password" command, usually reset.
-        // Let's just run the admin command to reset it to something known or ask user.
-        // For simplicity in this menu, let's just run the command to set it to 'admin' and tell user.
-        console.log("已尝试将密码重置为 'admin'");
+        console.log(`${c.yellow}正在尝试将 Alist 密码重置为 'admin'...${c.reset}`);
+        await runCommand('alist admin set admin');
         break;
       case '6':
         await runCommand('nano .env');
