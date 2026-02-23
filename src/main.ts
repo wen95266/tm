@@ -70,12 +70,13 @@ const main = async () => {
     console.log(`5. ${c.bright}🔑 重置 Alist 密码为 admin${c.reset}`);
     console.log(`6. ${c.bright}⚙️  编辑配置文件 (.env)${c.reset}`);
     console.log(`7. ${c.bright}🐍 编辑 Bot 代码 (bot.py)${c.reset}`);
+    console.log(`8. ${c.bright}🔑 自动获取/配置 Alist Token${c.reset}`);
     console.log(`0. ${c.bright}退出${c.reset}`);
     console.log('');
 
     const choice = await new Promise<string>(resolve => {
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-      rl.question(`${c.cyan}请选择功能 [0-7]: ${c.reset}`, (answer) => {
+      rl.question(`${c.cyan}请选择功能 [0-8]: ${c.reset}`, (answer) => {
         rl.close();
         resolve(answer.trim());
       });
@@ -109,6 +110,9 @@ const main = async () => {
       case '7':
         await runCommand('nano bot.py');
         break;
+      case '8':
+        await configureAlistToken();
+        break;
       case '0':
         console.log("再见！");
         process.exit(0);
@@ -118,6 +122,90 @@ const main = async () => {
         await new Promise(r => setTimeout(r, 1000));
     }
   }
+};
+
+const configureAlistToken = async () => {
+    console.log(`${c.cyan}正在尝试自动获取 Alist Token...${c.reset}`);
+    
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const password = await new Promise<string>(resolve => {
+        rl.question(`${c.yellow}请输入 Alist 管理员密码 (默认 admin): ${c.reset}`, (answer) => {
+            rl.close();
+            resolve(answer.trim() || 'admin');
+        });
+    });
+
+    try {
+        const response = await fetch('http://127.0.0.1:5244/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: 'admin', password })
+        });
+        
+        const data = await response.json() as { code: number; data: { token: string }; message: string };
+        
+        if (data.code === 200) {
+            const token = data.data.token;
+            console.log(`${c.green}✅ 成功获取 Token!${c.reset}`);
+            
+            // Update .env
+            const envPath = path.resolve(process.cwd(), '.env');
+            let envContent = '';
+            if (fs.existsSync(envPath)) {
+                envContent = fs.readFileSync(envPath, 'utf-8');
+            }
+            
+            const lines = envContent.split('\n');
+            let found = false;
+            const newLines = lines.map(line => {
+                if (line.startsWith('ALIST_TOKEN=')) {
+                    found = true;
+                    return `ALIST_TOKEN=${token}`;
+                }
+                return line;
+            });
+            
+            if (!found) {
+                newLines.push(`ALIST_TOKEN=${token}`);
+            }
+            
+            fs.writeFileSync(envPath, newLines.join('\n'));
+            console.log(`${c.green}✅ Token 已保存到 .env 文件${c.reset}`);
+            
+            // Ask to apply
+            const rl2 = readline.createInterface({ input: process.stdin, output: process.stdout });
+            const apply = await new Promise<string>(resolve => {
+                rl2.question(`${c.cyan}是否立即应用更改 (重启服务)? [Y/n]: ${c.reset}`, (answer) => {
+                    rl2.close();
+                    resolve(answer.trim().toLowerCase());
+                });
+            });
+            
+            if (apply === '' || apply === 'y') {
+                await startInstall();
+                console.log("\n按回车键返回菜单...");
+                await new Promise<void>(r => {
+                    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+                    rl.question('', () => { rl.close(); r(); });
+                });
+            }
+            
+        } else {
+            console.error(`${c.red}❌ 登录失败: ${data.message}${c.reset}`);
+            console.log("\n按回车键返回菜单...");
+            await new Promise<void>(r => {
+                const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+                rl.question('', () => { rl.close(); r(); });
+            });
+        }
+    } catch (e) {
+        console.error(`${c.red}❌ 连接 Alist 失败，请确保 Alist 正在运行。${c.reset}`, e);
+        console.log("\n按回车键返回菜单...");
+        await new Promise<void>(r => {
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            rl.question('', () => { rl.close(); r(); });
+        });
+    }
 };
 
 main().catch(console.error);

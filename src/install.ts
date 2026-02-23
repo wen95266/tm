@@ -229,7 +229,7 @@ class FileManager:
 
     @staticmethod
     def list_dir(chat_id, path):
-        if not ALIST_TOKEN: return "⚠️ 未配置 ALIST_TOKEN"
+        if not ALIST_TOKEN: return "⚠️ 未配置 ALIST_TOKEN。请在控制台运行 'npm start' 并选择选项 8 来自动配置 Token。"
         try:
             headers = {'Authorization': ALIST_TOKEN}
             res = requests.post(f"{ALIST_URL}/api/fs/list", json={"path": path}, headers=headers, timeout=5).json()
@@ -305,7 +305,7 @@ class AlistUtils:
 
     @staticmethod
     def get_storage_list():
-        if not ALIST_TOKEN: return "⚠️ 未配置 ALIST_TOKEN，无法查看存储详情"
+        if not ALIST_TOKEN: return "⚠️ 未配置 ALIST_TOKEN。请在控制台运行 'npm start' 并选择选项 8 来自动配置 Token。"
         try:
             headers = {'Authorization': ALIST_TOKEN}
             res = requests.get(f"{ALIST_URL}/api/admin/storage/list", headers=headers, timeout=5).json()
