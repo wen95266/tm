@@ -727,10 +727,11 @@ except:
 while True:
     try:
         # Use allowed_updates to avoid processing unnecessary updates and potentially fix polling issues
-        bot.infinity_polling(timeout=10, long_polling_timeout=5, allowed_updates=telebot.util.update_types)
+        # skip_pending=True to ignore old updates that might be causing issues
+        bot.infinity_polling(timeout=20, long_polling_timeout=10, allowed_updates=telebot.util.update_types, skip_pending=True)
     except Exception as e:
         print(f"Polling error: {e}")
-        time.sleep(5)
+        time.sleep(15)
 `;
 
         fs.writeFileSync('bot.py', botContent);
