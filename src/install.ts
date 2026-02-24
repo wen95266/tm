@@ -39,8 +39,6 @@ export const startInstall = async (skipAlistConfig = false) => {
     const ENV_ADMIN_ID = process.env.ADMIN_ID || '0';
     const ENV_ALIST_TOKEN = process.env.ALIST_TOKEN || '';
     const ENV_RTMP_URL = process.env.RTMP_URL || 'rtmp://你的服务器地址/密钥';
-    const ENV_HTTP_PROXY = process.env.HTTP_PROXY || '';
-    const ENV_TELEGRAM_API_URL = process.env.TELEGRAM_API_URL || '';
 
     console.log("\x1b[1;32m=== 开始全自动安装流程 ===\x1b[0m");
 
@@ -150,18 +148,6 @@ print(f"Bot 启动中... Token: {BOT_TOKEN[:5]}*** Admin: {ADMIN_ID}")
 TG_RTMP_URL = ${JSON.stringify(ENV_RTMP_URL)}
 ALIST_URL = 'http://127.0.0.1:5244'
 ALIST_TOKEN = ${JSON.stringify(ENV_ALIST_TOKEN)}
-HTTP_PROXY = ${JSON.stringify(ENV_HTTP_PROXY)}
-TELEGRAM_API_URL = ${JSON.stringify(ENV_TELEGRAM_API_URL)}
-
-from telebot import apihelper
-
-if HTTP_PROXY:
-    apihelper.proxy = {'http': HTTP_PROXY, 'https': HTTP_PROXY}
-    print(f"Proxy configured: {HTTP_PROXY}")
-
-if TELEGRAM_API_URL:
-    apihelper.API_URL = TELEGRAM_API_URL + "/bot{0}/{1}"
-    print(f"Custom Telegram API URL configured: {TELEGRAM_API_URL}")
 
 print(f"Alist Token Configured: {bool(ALIST_TOKEN)} (Length: {len(ALIST_TOKEN)})")
 if ALIST_TOKEN:
