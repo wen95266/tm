@@ -287,7 +287,11 @@ class FileManager:
                     res_items.append({'name': item['name'], 'is_dir': is_dir, 'size': size})
                 user_states[chat_id]['items'] = res_items
                 return res_items
-            return f"❌ API 错误 ({res.get('code')}): {res.get('message')}"
+            
+            error_msg = f"❌ API 错误 ({res.get('code')}): {res.get('message')}"
+            if res.get('code') == 401:
+                error_msg += "\n\n💡 提示: 您的 Alist Token 已失效 (可能是因为重置了密码)。请在控制台主菜单选择【8】重新获取 Token。"
+            return error_msg
         except Exception as e:
             return f"❌ 请求异常: {str(e)}"
 
@@ -789,6 +793,60 @@ while True:
             console.warn("Could not find alist in PATH, assuming 'alist'");
         }
         run(`pm2 start ${alistPath} --name alist -- server`);
+        
+        // Wait for Alist to start and fetch token
+        console.log("\n\x1b[1;34m正在等待 Alist 启动以获取 Token...\x1b[0m");
+        let tokenFetched = false;
+        for (let i = 0; i < 5; i++) {
+            try {
+                execSync('sleep 2');
+                const response = await fetch('http://127.0.0.1:5244/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: 'admin', password: 'admin' })
+                });
+                const data = await response.json() as { code: number, data: { token: string } };
+                if (data.code === 200) {
+                    const token = data.data.token;
+                    console.log("\x1b[1;32m✅ 成功自动获取 Alist Token!\x1b[0m");
+                    
+                    // Update .env
+                    const envPath = path.resolve(process.cwd(), '.env');
+                    let envContent = '';
+                    if (fs.existsSync(envPath)) {
+                        envContent = fs.readFileSync(envPath, 'utf-8');
+                    }
+                    const lines = envContent.split('\n');
+                    let found = false;
+                    const newLines = lines.map(line => {
+                        if (line.startsWith('ALIST_TOKEN=')) {
+                            found = true;
+                            return `ALIST_TOKEN=${token}`;
+                        }
+                        return line;
+                    });
+                    if (!found) {
+                        newLines.push(`ALIST_TOKEN=${token}`);
+                    }
+                    fs.writeFileSync(envPath, newLines.join('\n'));
+                    
+                    // Update bot.py with new token
+                    let botContent = fs.readFileSync('bot.py', 'utf-8');
+                    botContent = botContent.replace(/ALIST_TOKEN = "[^"]*"/, `ALIST_TOKEN = "${token}"`);
+                    fs.writeFileSync('bot.py', botContent);
+                    
+                    tokenFetched = true;
+                    break;
+                }
+            } catch {
+                // Ignore and retry
+            }
+        }
+        
+        if (!tokenFetched) {
+            console.log("\x1b[1;33m⚠️ 自动获取 Token 失败，请稍后在主菜单选择【8】手动获取。\x1b[0m");
+        }
+
         const botPath = path.resolve('bot.py');
         run(`pm2 start ${botPath} --name bot --interpreter python`);
 

@@ -170,6 +170,7 @@ const configureAlistToken = async () => {
             }
             
             fs.writeFileSync(envPath, newLines.join('\n'));
+            process.env.ALIST_TOKEN = token; // Update process.env so startInstall picks it up
             console.log(`${c.green}✅ Token 已保存到 .env 文件${c.reset}`);
             
             // Ask to apply
