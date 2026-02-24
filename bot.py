@@ -10,15 +10,18 @@ from modules.config import BOT_TOKEN, ADMIN_ID, ADMIN_IDS, TG_RTMP_URL, ALIST_UR
 from modules.utils import SystemUtils, NetworkUtils
 from modules.alist import FileManager, AlistUtils
 from modules.menus import get_keyboard
+from modules.monitor import Monitor
 import subprocess
 
 # --- 🤖 初始化 ---
 bot = telebot.TeleBot(BOT_TOKEN)
 stream_process = None
-auto_switch_enabled = True
 start_time = time.time()
-last_alert_time = 0
 user_states = {} 
+
+# 启动监控
+monitor_system = Monitor(bot)
+monitor_system.start()
 
 # 设置左下角菜单命令
 try:
@@ -69,6 +72,25 @@ def cmd_handler(message):
     else:
         bot.reply_to(message, "用法: /cmd <命令>")
 
+@bot.message_handler(commands=['help'])
+def help_handler(message):
+    if not is_auth(message): return
+    help_text = (
+        "📖 **Termux Alist Bot 帮助手册**\n\n"
+        "🔹 **基础命令**\n"
+        "• /menu - 打开图形化控制面板\n"
+        "• /status - 快速查看系统状态\n"
+        "• /stream - 直播推流控制\n"
+        "• /cmd <命令> - 执行终端命令\n\n"
+        "🔹 **功能说明**\n"
+        "• **文件管理**: 浏览 Alist 文件，支持获取直链、推流直播、删除文件。\n"
+        "• **网络中心**: WiFi 扫描、自动切换、测速、查看 IP。\n"
+        "• **进程监控**: 查看系统资源占用最高的进程。\n"
+        "• **Alist 管理**: 存储状态查看、密码重置、日志查看。\n\n"
+        "💡 *提示: 建议在手机上开启 VPN 的 TUN 模式以保证 Bot 连接稳定。*"
+    )
+    bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
+
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
     if not is_auth(call): return
@@ -82,8 +104,21 @@ def callback(call):
     # --- File Manager ---
     elif d == "fm_home":
         path = FileManager.get_current_path(user_states, cid)
+        FileManager.list_dir(user_states, cid, path) # Refresh items
         bot.edit_message_text(f"📂 **文件管理器**\n路径: `{path}`", cid, mid, reply_markup=get_keyboard("fm", user_states, path, cid), parse_mode='Markdown')
     
+    elif d == "fm_refresh":
+        path = FileManager.get_current_path(user_states, cid)
+        FileManager.list_dir(user_states, cid, path)
+        bot.edit_message_text(f"📂 **文件管理器**\n路径: `{path}`", cid, mid, reply_markup=get_keyboard("fm", user_states, path, cid), parse_mode='Markdown')
+
+    elif d == "fm_next" or d == "fm_prev":
+        if cid in user_states:
+            if d == "fm_next": user_states[cid]['page'] += 1
+            else: user_states[cid]['page'] -= 1
+            path = FileManager.get_current_path(user_states, cid)
+            bot.edit_message_text(f"📂 **文件管理器**\n路径: `{path}`", cid, mid, reply_markup=get_keyboard("fm", user_states, path, cid), parse_mode='Markdown')
+
     elif d == "fm_up" or d == "fm_back":
         curr = FileManager.get_current_path(user_states, cid)
         if d == "fm_up":
@@ -91,6 +126,7 @@ def callback(call):
                 curr = os.path.dirname(curr).replace('\\', '/')
                 if curr == '': curr = '/'
             FileManager.set_path(user_states, cid, curr)
+            FileManager.list_dir(user_states, cid, curr)
         bot.edit_message_text(f"📂 **文件管理器**\n路径: `{curr}`", cid, mid, reply_markup=get_keyboard("fm", user_states, curr, cid), parse_mode='Markdown')
 
     elif d.startswith("fm_cd_"):
@@ -100,6 +136,7 @@ def callback(call):
             curr = FileManager.get_current_path(user_states, cid)
             new_path = os.path.join(curr, folder).replace('\\', '/')
             if FileManager.set_path(user_states, cid, new_path):
+                FileManager.list_dir(user_states, cid, new_path)
                 bot.edit_message_text(f"📂 **文件管理器**\n路径: `{new_path}`", cid, mid, reply_markup=get_keyboard("fm", user_states, new_path, cid), parse_mode='Markdown')
             else:
                 bot.answer_callback_query(call.id, "无法进入目录")
@@ -111,6 +148,26 @@ def callback(call):
         filename = FileManager.get_item_by_idx(user_states, cid, idx)
         if filename:
             bot.edit_message_text(f"📄 **文件操作**: {filename}", cid, mid, reply_markup=get_keyboard("fm_file_opt", user_states, idx, cid))
+        else:
+            bot.answer_callback_query(call.id, "文件不存在")
+
+    elif d.startswith("fm_del_conf_"):
+        idx = d[12:]
+        bot.edit_message_text("⚠️ **确认删除?**", cid, mid, reply_markup=get_keyboard("fm_del_conf", user_states, idx, cid))
+
+    elif d.startswith("fm_del_exec_"):
+        idx = d[12:]
+        filename = FileManager.get_item_by_idx(user_states, cid, idx)
+        if filename:
+            path = os.path.join(FileManager.get_current_path(user_states, cid), filename).replace('\\', '/')
+            if FileManager.delete_file(path):
+                bot.answer_callback_query(call.id, "✅ 文件已删除", show_alert=True)
+                # Refresh list
+                curr = FileManager.get_current_path(user_states, cid)
+                FileManager.list_dir(user_states, cid, curr)
+                bot.edit_message_text(f"📂 **文件管理器**\n路径: `{curr}`", cid, mid, reply_markup=get_keyboard("fm", user_states, curr, cid), parse_mode='Markdown')
+            else:
+                bot.answer_callback_query(call.id, "❌ 删除失败", show_alert=True)
         else:
             bot.answer_callback_query(call.id, "文件不存在")
 
@@ -242,30 +299,7 @@ def stop_stream_process(proc):
     except: pass
 
 # --- Monitor ---
-def monitor():
-    global last_alert_time
-    while True:
-        time.sleep(10)
-        if auto_switch_enabled and not NetworkUtils.check_internet():
-            for ssid, pwd in WIFI_CONFIG.items():
-                if NetworkUtils.connect_wifi(ssid, pwd):
-                    try:
-                        if ADMIN_ID != 0:
-                            bot.send_message(ADMIN_ID, f"🔄 自动切换 WiFi 成功: {ssid}")
-                    except: pass
-                    break
-        
-        if time.time() - last_alert_time > 300:
-            if psutil.cpu_percent() > ALERT_CPU:
-                try:
-                    if ADMIN_ID != 0:
-                        bot.send_message(ADMIN_ID, f"🚨 CPU 报警: {psutil.cpu_percent()}%")
-                except: pass
-                last_alert_time = time.time()
-
-t = threading.Thread(target=monitor)
-t.daemon = True
-t.start()
+# Monitor is now handled by modules.monitor.Monitor class
 
 # 防止 Android 休眠杀后台
 try:

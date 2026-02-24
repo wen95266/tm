@@ -1,4 +1,5 @@
 import requests
+import os
 from modules.config import ALIST_URL, get_alist_token
 
 class FileManager:
@@ -36,9 +37,17 @@ class FileManager:
                     is_dir = item['is_dir']
                     size = ""
                     if not is_dir:
-                        size = f" ({item['size'] // 1024}KB)"
+                        size_val = item['size']
+                        if size_val > 1024 * 1024:
+                            size = f" ({size_val // (1024 * 1024)}MB)"
+                        else:
+                            size = f" ({size_val // 1024}KB)"
                     res_items.append({'name': item['name'], 'is_dir': is_dir, 'size': size})
+                
+                if chat_id not in user_states:
+                    user_states[chat_id] = {}
                 user_states[chat_id]['items'] = res_items
+                user_states[chat_id]['page'] = 0
                 return res_items
             
             error_msg = f"❌ API 错误 ({res.get('code')}): {res.get('message')}"
@@ -47,6 +56,20 @@ class FileManager:
             return error_msg
         except Exception as e:
             return f"❌ 请求异常: {str(e)}"
+
+    @staticmethod
+    def delete_file(path):
+        token = get_alist_token()
+        if not token: return False
+        try:
+            headers = {'Authorization': token}
+            # Alist remove API: /api/fs/remove
+            dir_path = os.path.dirname(path)
+            name = os.path.basename(path)
+            res = requests.post(f"{ALIST_URL}/api/fs/remove", json={"path": dir_path, "names": [name]}, headers=headers, timeout=5).json()
+            return res['code'] == 200
+        except:
+            return False
 
     @staticmethod
     def get_item_by_idx(user_states, chat_id, idx):

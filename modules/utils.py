@@ -28,9 +28,13 @@ class SystemUtils:
         cpu = psutil.cpu_percent(interval=0.5)
         mem = psutil.virtual_memory().percent
         disk = psutil.disk_usage('/').percent
+        
+        lan_ip = NetworkUtils.get_lan_ip()
+        
         temp = "N/A"
         try:
             temp = SystemUtils.run_cmd("sensors | grep 'temp1' | head -1")
+            if not temp: temp = "N/A"
         except: pass
         
         battery = "N/A"
@@ -45,6 +49,7 @@ class SystemUtils:
                 f"💻 CPU负载: `{cpu}%`\n"
                 f"🧠 内存使用: `{mem}%`\n"
                 f"💾 存储使用: `{disk}%`\n"
+                f"🌐 内网 IP: `{lan_ip}`\n"
                 f"🔋 电池状态: `{battery}`\n"
                 f"🌡 设备温度: `{temp}`")
 

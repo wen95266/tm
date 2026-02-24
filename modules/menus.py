@@ -28,15 +28,31 @@ def get_keyboard(menu_type, user_states=None, data=None, chat_id=None, stream_pr
         markup.row(types.InlineKeyboardButton(f"📂 {path}", callback_data="noop"))
         markup.row(types.InlineKeyboardButton("⬆️ 上一级", callback_data="fm_up"))
         
-        items = FileManager.list_dir(user_states, chat_id, path)
-        if isinstance(items, list):
-            for idx, item in enumerate(items[:20]): # Show up to 20 items
+        # Pagination logic
+        items = user_states.get(chat_id, {}).get('items', [])
+        page = user_states.get(chat_id, {}).get('page', 0)
+        page_size = 10
+        start = page * page_size
+        end = start + page_size
+        
+        if items:
+            for idx, item in enumerate(items[start:end]):
+                real_idx = start + idx
                 if item['is_dir']:
-                    markup.add(types.InlineKeyboardButton(f"📁 {item['name']}", callback_data=f"fm_cd_{idx}"))
+                    markup.add(types.InlineKeyboardButton(f"📁 {item['name']}", callback_data=f"fm_cd_{real_idx}"))
                 else:
-                    markup.add(types.InlineKeyboardButton(f"📄 {item['name']}{item['size']}", callback_data=f"fm_opt_{idx}"))
+                    markup.add(types.InlineKeyboardButton(f"📄 {item['name']}{item['size']}", callback_data=f"fm_opt_{real_idx}"))
+            
+            # Pagination buttons
+            nav_btns = []
+            if page > 0:
+                nav_btns.append(types.InlineKeyboardButton("⬅️ 上一页", callback_data="fm_prev"))
+            if end < len(items):
+                nav_btns.append(types.InlineKeyboardButton("下一页 ➡️", callback_data="fm_next"))
+            if nav_btns:
+                markup.row(*nav_btns)
         else:
-            markup.add(types.InlineKeyboardButton(f"❌ 错误: {items}", callback_data="noop"))
+            markup.add(types.InlineKeyboardButton("📭 目录为空", callback_data="noop"))
             
         markup.row(
             types.InlineKeyboardButton("🔄 刷新", callback_data="fm_refresh"),
@@ -51,7 +67,19 @@ def get_keyboard(menu_type, user_states=None, data=None, chat_id=None, stream_pr
             types.InlineKeyboardButton("▶️ 推流直播", callback_data=f"fm_stream_{idx}"),
             types.InlineKeyboardButton("🔗 获取直链", callback_data=f"fm_link_{idx}")
         )
-        markup.row(types.InlineKeyboardButton("🔙 返回列表", callback_data="fm_back"))
+        markup.row(
+            types.InlineKeyboardButton("🗑 删除文件", callback_data=f"fm_del_conf_{idx}"),
+            types.InlineKeyboardButton("🔙 返回列表", callback_data="fm_back")
+        )
+
+    elif menu_type == "fm_del_conf":
+        idx = data
+        filename = FileManager.get_item_by_idx(user_states, chat_id, idx) or "Unknown"
+        markup.row(types.InlineKeyboardButton(f"⚠️ 确认删除 {filename}?", callback_data="noop"))
+        markup.row(
+            types.InlineKeyboardButton("✅ 确认删除", callback_data=f"fm_del_exec_{idx}"),
+            types.InlineKeyboardButton("❌ 取消", callback_data=f"fm_opt_{idx}")
+        )
 
     elif menu_type == "proc":
         markup.row(types.InlineKeyboardButton("🔄 刷新列表", callback_data="menu_proc"))
