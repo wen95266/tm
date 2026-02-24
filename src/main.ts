@@ -65,18 +65,16 @@ const main = async () => {
     printHeader("Termux Alist 全能控制台");
     console.log(`1. ${c.bright}🚀 一键安装/修复 (Alist + Bot + PM2)${c.reset}`);
     console.log(`2. ${c.bright}🤖 查看 Bot 日志${c.reset}`);
-    console.log(`3. ${c.bright}🔄 重启所有服务${c.reset}`);
-    console.log(`4. ${c.bright}🛑 停止所有服务${c.reset}`);
-    console.log(`5. ${c.bright}🔑 重置 Alist 密码为 admin${c.reset}`);
-    console.log(`6. ${c.bright}⚙️  编辑配置文件 (.env)${c.reset}`);
-    console.log(`7. ${c.bright}🐍 编辑 Bot 代码 (bot.py)${c.reset}`);
-    console.log(`8. ${c.bright}🔑 自动获取/配置 Alist Token${c.reset}`);
+    console.log(`3. ${c.bright}🔑 重置 Alist 密码为 admin${c.reset}`);
+    console.log(`4. ${c.bright}⚙️  编辑配置文件 (.env)${c.reset}`);
+    console.log(`5. ${c.bright}🐍 编辑 Bot 代码 (bot.py)${c.reset}`);
+    console.log(`6. ${c.bright}🔑 自动获取/配置 Alist Token${c.reset}`);
     console.log(`0. ${c.bright}退出${c.reset}`);
     console.log('');
 
     const choice = await new Promise<string>(resolve => {
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-      rl.question(`${c.cyan}请选择功能 [0-8]: ${c.reset}`, (answer) => {
+      rl.question(`${c.cyan}请选择功能 [0-6]: ${c.reset}`, (answer) => {
         rl.close();
         resolve(answer.trim());
       });
@@ -95,22 +93,16 @@ const main = async () => {
         await runCommand('pm2 logs bot --lines 50');
         break;
       case '3':
-        await runCommand('pm2 restart all');
-        break;
-      case '4':
-        await runCommand('pm2 stop all');
-        break;
-      case '5':
         console.log(`${c.yellow}正在尝试将 Alist 密码重置为 'admin'...${c.reset}`);
         await runCommand('alist admin set admin');
         break;
-      case '6':
+      case '4':
         await runCommand('nano .env');
         break;
-      case '7':
+      case '5':
         await runCommand('nano bot.py');
         break;
-      case '8':
+      case '6':
         await configureAlistToken();
         break;
       case '0':
