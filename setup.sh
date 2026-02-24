@@ -95,6 +95,6 @@ else
     echo -e "\033[1;32m配置已保存！\033[0m"
 fi
 
-# 5. Start the CLI application
-echo -e "\033[1;32m正在启动 Termux Alist 全能控制台...\033[0m"
-npm start
+# 5. Start the CLI application in auto-install mode
+echo -e "\033[1;32m正在启动全自动安装流程...\033[0m"
+npm start -- --install
