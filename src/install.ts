@@ -153,6 +153,36 @@ print(f"Alist Token Configured: {bool(ALIST_TOKEN)} (Length: {len(ALIST_TOKEN)})
 if ALIST_TOKEN:
     print(f"Alist Token Prefix: {ALIST_TOKEN[:5]}...")
 
+from telebot import apihelper
+
+def check_telegram_connection():
+    try:
+        requests.get("https://api.telegram.org", timeout=3)
+        return True
+    except:
+        return False
+
+def auto_setup_proxy():
+    if check_telegram_connection():
+        return
+    
+    print("⚠️ 无法直连 Telegram API (可能是 Termux DNS 解析失败)，正在尝试自动检测本地 VPN 代理...")
+    # 常见安卓代理软件的 HTTP 端口: Clash(7890), V2RayNG(10809), NekoBox(2080), Surfboard(25500)
+    common_ports = [7890, 10809, 2080, 25500, 8080, 1080, 8234]
+    for port in common_ports:
+        proxy_url = f"http://127.0.0.1:{port}"
+        try:
+            requests.get("https://api.telegram.org", proxies={"http": proxy_url, "https": proxy_url}, timeout=2)
+            apihelper.proxy = {'http': proxy_url, 'https': proxy_url}
+            print(f"✅ 成功自动匹配并配置本地代理: {proxy_url}")
+            return
+        except:
+            continue
+            
+    print("❌ 自动检测代理失败。如果您的手机已开启 VPN，请尝试在 VPN 软件中开启 'TUN 模式' (或称 '路由模式' / 'Fake-IP')。")
+
+auto_setup_proxy()
+
 WIFI_CONFIG = {
     # 'MyHomeWifi': 'password123',
     # 'MyOfficeWifi': 'password456'
