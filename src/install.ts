@@ -290,7 +290,7 @@ class FileManager:
             
             error_msg = f"❌ API 错误 ({res.get('code')}): {res.get('message')}"
             if res.get('code') == 401:
-                error_msg += "\n\n💡 提示: 您的 Alist Token 已失效 (可能是因为重置了密码)。请在控制台主菜单选择【8】重新获取 Token。"
+                error_msg += "\\n\\n💡 提示: 您的 Alist Token 已失效 (可能是因为重置了密码)。请在控制台主菜单选择【8】重新获取 Token。"
             return error_msg
         except Exception as e:
             return f"❌ 请求异常: {str(e)}"
