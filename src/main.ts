@@ -68,13 +68,14 @@ const main = async () => {
     console.log(`3. ${c.bright}🔑 重置 Alist 密码为 admin${c.reset}`);
     console.log(`4. ${c.bright}⚙️  编辑配置文件 (.env)${c.reset}`);
     console.log(`5. ${c.bright}🐍 编辑 Bot 代码 (bot.py)${c.reset}`);
-    console.log(`6. ${c.bright}🔑 自动获取/配置 Alist Token${c.reset}`);
+    console.log(`6. ${c.bright}📦 编辑 Bot 模块 (modules/)${c.reset}`);
+    console.log(`7. ${c.bright}🔑 自动获取/配置 Alist Token${c.reset}`);
     console.log(`0. ${c.bright}退出${c.reset}`);
     console.log('');
 
     const choice = await new Promise<string>(resolve => {
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-      rl.question(`${c.cyan}请选择功能 [0-6]: ${c.reset}`, (answer) => {
+      rl.question(`${c.cyan}请选择功能 [0-7]: ${c.reset}`, (answer) => {
         rl.close();
         resolve(answer.trim());
       });
@@ -103,6 +104,9 @@ const main = async () => {
         await runCommand('nano bot.py');
         break;
       case '6':
+        await editModules();
+        break;
+      case '7':
         await configureAlistToken();
         break;
       case '0':
@@ -114,6 +118,36 @@ const main = async () => {
         await new Promise(r => setTimeout(r, 1000));
     }
   }
+};
+
+const editModules = async () => {
+    while (true) {
+        printHeader("Bot 模块管理");
+        console.log(`1. ${c.bright}⚙️  config.py (配置与环境)${c.reset}`);
+        console.log(`2. ${c.bright}🛠  utils.py (系统与网络)${c.reset}`);
+        console.log(`3. ${c.bright}📂 alist.py (Alist 逻辑)${c.reset}`);
+        console.log(`4. ${c.bright}⌨️  menus.py (菜单系统)${c.reset}`);
+        console.log(`0. ${c.bright}返回主菜单${c.reset}`);
+        console.log('');
+
+        const choice = await new Promise<string>(resolve => {
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            rl.question(`${c.cyan}请选择要编辑的模块 [0-4]: ${c.reset}`, (answer) => {
+                rl.close();
+                resolve(answer.trim());
+            });
+        });
+
+        if (choice === '0') break;
+
+        switch (choice) {
+            case '1': await runCommand('nano modules/config.py'); break;
+            case '2': await runCommand('nano modules/utils.py'); break;
+            case '3': await runCommand('nano modules/alist.py'); break;
+            case '4': await runCommand('nano modules/menus.py'); break;
+            default: console.log(`${c.red}无效选择${c.reset}`); await new Promise(r => setTimeout(r, 1000));
+        }
+    }
 };
 
 const configureAlistToken = async () => {
