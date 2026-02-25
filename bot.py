@@ -11,6 +11,7 @@ from modules.utils import SystemUtils, NetworkUtils
 from modules.alist import FileManager, AlistUtils
 from modules.menus import get_keyboard
 from modules.monitor import Monitor
+from modules.stream import StreamManager
 import subprocess
 
 # --- 🤖 初始化 ---
@@ -175,13 +176,7 @@ def callback(call):
         idx = d[10:]
         filename = FileManager.get_item_by_idx(user_states, cid, idx)
         if not filename: return bot.answer_callback_query(call.id, "文件不存在")
-        path = os.path.join(FileManager.get_current_path(user_states, cid), filename).replace('\\', '/')
-        url = FileManager.get_file_url(path)
-        if url:
-            bot.answer_callback_query(call.id, "准备推流...")
-            start_ffmpeg_stream(url, cid)
-        else:
-            bot.answer_callback_query(call.id, "无法获取直链，请检查 Alist 配置", show_alert=True)
+        bot.edit_message_text(f"为 {filename} 选择推流密钥:", cid, mid, reply_markup=get_keyboard("stream_select_key", user_states, idx, cid))
 
     elif d.startswith("fm_link_"):
         idx = d[8:]
@@ -270,9 +265,48 @@ def callback(call):
     elif d == "menu_stream":
         bot.edit_message_text("📺 **直播控制台**", cid, mid, reply_markup=get_keyboard("stream", stream_process=stream_process))
     
+    elif d == "stream_add_key":
+        msg = bot.send_message(cid, "➕ 请输入新密钥的名称 (例如: 频道1):")
+        bot.register_next_step_handler(msg, lambda m: process_add_key_name(m, cid))
+
+    elif d.startswith("stream_del_"):
+        name = d[11:]
+        if StreamManager.remove_key(name):
+            bot.answer_callback_query(call.id, f"已删除密钥: {name}")
+        else:
+            bot.answer_callback_query(call.id, "删除失败")
+        bot.edit_message_text("📺 **直播控制台**", cid, mid, reply_markup=get_keyboard("stream", stream_process=stream_process))
+
+    elif d.startswith("stream_exec_"):
+        parts = d[12:].split('_', 1)
+        if len(parts) == 2:
+            idx, key_name = parts
+            filename = FileManager.get_item_by_idx(user_states, cid, idx)
+            if not filename: return bot.answer_callback_query(call.id, "文件不存在")
+            path = os.path.join(FileManager.get_current_path(user_states, cid), filename).replace('\\', '/')
+            url = FileManager.get_file_url(path)
+            if url:
+                stream_key = StreamManager.get_key(key_name)
+                if stream_key:
+                    bot.answer_callback_query(call.id, f"准备推流到 {key_name}...")
+                    start_ffmpeg_stream(url, cid, stream_key)
+                else:
+                    bot.answer_callback_query(call.id, "密钥不存在", show_alert=True)
+            else:
+                bot.answer_callback_query(call.id, "无法获取直链，请检查 Alist 配置", show_alert=True)
+
+    elif d.startswith("stream_use_"):
+        name = d[11:]
+        stream_key = StreamManager.get_key(name)
+        if stream_key:
+            msg = bot.send_message(cid, f"🔗 请回复要推流到 `{name}` 的直播源链接:", parse_mode='Markdown')
+            bot.register_next_step_handler(msg, lambda m: start_ffmpeg_stream(m.text.strip(), cid, stream_key))
+        else:
+            bot.answer_callback_query(call.id, "密钥不存在", show_alert=True)
+
     elif d == "stream_input":
-        msg = bot.send_message(cid, "🔗 请回复直播源链接:")
-        bot.register_next_step_handler(msg, lambda m: start_ffmpeg_stream(m.text.strip(), cid))
+        msg = bot.send_message(cid, "🔗 请回复临时直播源链接:")
+        bot.register_next_step_handler(msg, lambda m: start_ffmpeg_stream(m.text.strip(), cid, TG_RTMP_URL))
     
     elif d == "stop_stream":
         if stream_process:
@@ -287,11 +321,23 @@ def callback(call):
         bot.send_message(cid, f"📝 **Bot Logs**\n```\n{bot_log}\n```\n\n📝 **Alist Logs**\n```\n{alist_log}\n```", parse_mode='Markdown')
 
 # --- Helpers ---
-def start_ffmpeg_stream(url, cid):
+def process_add_key_name(message, cid):
+    name = message.text.strip()
+    if not name: return bot.send_message(cid, "名称不能为空")
+    msg = bot.send_message(cid, f"请输入 `{name}` 的推流密钥 (例如: `1234-5678-90ab-cdef`):", parse_mode='Markdown')
+    bot.register_next_step_handler(msg, lambda m: process_add_key_value(m, cid, name))
+
+def process_add_key_value(message, cid, name):
+    key = message.text.strip()
+    if not key: return bot.send_message(cid, "密钥不能为空")
+    StreamManager.add_key(name, key)
+    bot.send_message(cid, f"✅ 成功添加推流密钥: `{name}`", parse_mode='Markdown', reply_markup=get_keyboard("stream", stream_process=stream_process))
+
+def start_ffmpeg_stream(url, cid, rtmp_url):
     global stream_process
     if stream_process: stop_stream_process(stream_process)
     bot.send_message(cid, "🚀 启动推流...")
-    cmd = ['ffmpeg', '-re', '-i', url, '-c:v', 'libx264', '-preset', 'ultrafast', '-f', 'flv', TG_RTMP_URL]
+    cmd = ['ffmpeg', '-re', '-i', url, '-c:v', 'libx264', '-preset', 'ultrafast', '-f', 'flv', rtmp_url]
     stream_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=os.setsid)
 
 def stop_stream_process(proc):

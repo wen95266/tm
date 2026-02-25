@@ -3,6 +3,8 @@ from modules.alist import FileManager, AlistUtils
 from modules.utils import NetworkUtils
 from modules.config import ALIST_URL
 
+from modules.stream import StreamManager
+
 def get_keyboard(menu_type, user_states=None, data=None, chat_id=None, stream_process=None):
     markup = types.InlineKeyboardMarkup()
     
@@ -113,10 +115,37 @@ def get_keyboard(menu_type, user_states=None, data=None, chat_id=None, stream_pr
     elif menu_type == "stream":
         status = "🟢 推流中" if stream_process and stream_process.poll() is None else "🔴 空闲"
         markup.row(types.InlineKeyboardButton(f"状态: {status}", callback_data="noop"))
+        
+        keys = StreamManager.load_keys()
+        if keys:
+            markup.row(types.InlineKeyboardButton("🔑 已保存的推流密钥:", callback_data="noop"))
+            for name, key in keys.items():
+                markup.row(
+                    types.InlineKeyboardButton(f"▶️ 使用: {name}", callback_data=f"stream_use_{name}"),
+                    types.InlineKeyboardButton("🗑 删除", callback_data=f"stream_del_{name}")
+                )
+        else:
+            markup.row(types.InlineKeyboardButton("⚠️ 暂无保存的推流密钥", callback_data="noop"))
+
         markup.row(
-            types.InlineKeyboardButton("▶️ 开始", callback_data="stream_input"),
-            types.InlineKeyboardButton("⏹ 停止", callback_data="stop_stream")
+            types.InlineKeyboardButton("➕ 添加新密钥", callback_data="stream_add_key"),
+            types.InlineKeyboardButton("▶️ 临时推流", callback_data="stream_input")
         )
-        markup.row(types.InlineKeyboardButton("🔙 主菜单", callback_data="main_menu"))
+        markup.row(
+            types.InlineKeyboardButton("⏹ 停止推流", callback_data="stop_stream"),
+            types.InlineKeyboardButton("🔙 主菜单", callback_data="main_menu")
+        )
+
+    elif menu_type == "stream_select_key":
+        idx = data # file idx
+        filename = FileManager.get_item_by_idx(user_states, chat_id, idx) or "Unknown"
+        markup.row(types.InlineKeyboardButton(f"为 {filename} 选择推流密钥:", callback_data="noop"))
+        
+        keys = StreamManager.load_keys()
+        if keys:
+            for name, key in keys.items():
+                markup.row(types.InlineKeyboardButton(f"🔑 {name}", callback_data=f"stream_exec_{idx}_{name}"))
+        
+        markup.row(types.InlineKeyboardButton("🔙 返回", callback_data=f"fm_opt_{idx}"))
 
     return markup
