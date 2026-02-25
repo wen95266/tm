@@ -4,7 +4,7 @@ import datetime
 import psutil
 import json
 import requests
-from modules.config import PING_TARGET, start_time if 'start_time' in globals() else time.time()
+from modules.config import PING_TARGET
 
 # Note: start_time will be handled in bot.py and passed or imported
 # For now, let's define a way to get it
