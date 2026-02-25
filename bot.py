@@ -148,13 +148,13 @@ def callback(call):
         idx = d[7:]
         filename = FileManager.get_item_by_idx(user_states, cid, idx)
         if filename:
-            bot.edit_message_text(f"📄 **文件操作**: {filename}", cid, mid, reply_markup=get_keyboard("fm_file_opt", user_states, idx, cid))
+            bot.edit_message_text(f"📄 **文件操作**: {filename}", cid, mid, reply_markup=get_keyboard("fm_file_opt", user_states, idx, cid), parse_mode='Markdown')
         else:
             bot.answer_callback_query(call.id, "文件不存在")
 
     elif d.startswith("fm_del_conf_"):
         idx = d[12:]
-        bot.edit_message_text("⚠️ **确认删除?**", cid, mid, reply_markup=get_keyboard("fm_del_conf", user_states, idx, cid))
+        bot.edit_message_text("⚠️ **确认删除?**", cid, mid, reply_markup=get_keyboard("fm_del_conf", user_states, idx, cid), parse_mode='Markdown')
 
     elif d.startswith("fm_del_exec_"):
         idx = d[12:]
@@ -176,7 +176,7 @@ def callback(call):
         idx = d[10:]
         filename = FileManager.get_item_by_idx(user_states, cid, idx)
         if not filename: return bot.answer_callback_query(call.id, "文件不存在")
-        bot.edit_message_text(f"为 {filename} 选择推流密钥:", cid, mid, reply_markup=get_keyboard("stream_select_key", user_states, idx, cid))
+        bot.edit_message_text(f"为 {filename} 选择推流密钥:", cid, mid, reply_markup=get_keyboard("stream_select_key", user_states, idx, cid), parse_mode='Markdown')
 
     elif d.startswith("fm_link_"):
         idx = d[8:]
@@ -263,7 +263,7 @@ def callback(call):
 
     # --- Stream ---
     elif d == "menu_stream":
-        bot.edit_message_text("📺 **直播控制台**", cid, mid, reply_markup=get_keyboard("stream", stream_process=stream_process))
+        bot.edit_message_text("📺 **直播控制台**", cid, mid, reply_markup=get_keyboard("stream", stream_process=stream_process), parse_mode='Markdown')
     
     elif d == "stream_add_key":
         msg = bot.send_message(cid, "➕ 请输入新密钥的名称 (例如: 频道1):")
@@ -275,7 +275,7 @@ def callback(call):
             bot.answer_callback_query(call.id, f"已删除密钥: {name}")
         else:
             bot.answer_callback_query(call.id, "删除失败")
-        bot.edit_message_text("📺 **直播控制台**", cid, mid, reply_markup=get_keyboard("stream", stream_process=stream_process))
+        bot.edit_message_text("📺 **直播控制台**", cid, mid, reply_markup=get_keyboard("stream", stream_process=stream_process), parse_mode='Markdown')
 
     elif d.startswith("stream_exec_"):
         parts = d[12:].split('_', 1)
