@@ -92,8 +92,12 @@ def help_handler(message):
     )
     bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
 
+def escape_md(text):
+    return str(text).replace('_', '\\_').replace('*', '\\*').replace('`', '\\`').replace('[', '\\[').replace(']', '\\]')
+
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
+    global stream_process
     if not is_auth(call): return
     cid = call.message.chat.id
     mid = call.message.message_id
@@ -148,7 +152,7 @@ def callback(call):
         idx = d[7:]
         filename = FileManager.get_item_by_idx(user_states, cid, idx)
         if filename:
-            bot.edit_message_text(f"📄 **文件操作**: {filename}", cid, mid, reply_markup=get_keyboard("fm_file_opt", user_states, idx, cid), parse_mode='Markdown')
+            bot.edit_message_text(f"📄 **文件操作**: {escape_md(filename)}", cid, mid, reply_markup=get_keyboard("fm_file_opt", user_states, idx, cid), parse_mode='Markdown')
         else:
             bot.answer_callback_query(call.id, "文件不存在")
 
@@ -176,7 +180,7 @@ def callback(call):
         idx = d[10:]
         filename = FileManager.get_item_by_idx(user_states, cid, idx)
         if not filename: return bot.answer_callback_query(call.id, "文件不存在")
-        bot.edit_message_text(f"为 {filename} 选择推流密钥:", cid, mid, reply_markup=get_keyboard("stream_select_key", user_states, idx, cid), parse_mode='Markdown')
+        bot.edit_message_text(f"为 {escape_md(filename)} 选择推流密钥:", cid, mid, reply_markup=get_keyboard("stream_select_key", user_states, idx, cid), parse_mode='Markdown')
 
     elif d.startswith("fm_link_"):
         idx = d[8:]
@@ -185,7 +189,7 @@ def callback(call):
         path = os.path.join(FileManager.get_current_path(user_states, cid), filename).replace('\\', '/')
         url = FileManager.get_file_url(path)
         if url:
-            bot.send_message(cid, f"🔗 **{filename} 直链:**\n`{url}`", parse_mode='Markdown')
+            bot.send_message(cid, f"🔗 **{escape_md(filename)} 直链:**\n`{url}`", parse_mode='Markdown')
             bot.answer_callback_query(call.id, "直链已发送")
         else:
             bot.answer_callback_query(call.id, "无法获取直链，请检查 Alist 配置", show_alert=True)
